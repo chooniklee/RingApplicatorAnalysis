@@ -1,0 +1,1383 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HDR Applicator Film Analyzer</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/utif@3.1.0/UTIF.min.js"></script>
+    <style>
+        body { font-family: 'Inter', sans-serif; background-color: #f3f4f6; user-select: none; }
+        canvas { image-rendering: pixelated; }
+        
+        input[type=range] {
+            -webkit-appearance: none;
+            width: 100%;
+            background: transparent;
+            height: 20px;
+            cursor: pointer;
+        }
+        input[type=range]:disabled { opacity: 0.3; cursor: not-allowed; }
+        
+        input[type=range]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            height: 16px;
+            width: 16px;
+            border-radius: 50%;
+            background: #4f46e5;
+            cursor: pointer;
+            margin-top: -6px;
+            box-shadow: 0 1px 2px rgba(0,0,0,0.3);
+            border: 2px solid white;
+        }
+        
+        input[type=range]::-webkit-slider-runnable-track {
+            width: 100%;
+            height: 4px;
+            cursor: pointer;
+            background: #cbd5e1;
+            border-radius: 2px;
+        }
+
+        .data-table-container {
+            flex: 1;
+            overflow-y: auto;
+            border-top: 1px solid #e5e7eb;
+        }
+        table { width: 100%; border-collapse: collapse; font-size: 0.8rem; }
+        th { 
+            background-color: #f9fafb; 
+            position: sticky; 
+            top: 0; 
+            z-index: 10; 
+            font-weight: 800; 
+            text-align: left; 
+            padding: 0.4rem 0.6rem; 
+            border-bottom: 2px solid #e5e7eb; 
+            color: #1e1b4b; 
+            font-size: 0.65rem;
+        }
+        td { 
+            padding: 0.25rem 0.6rem; 
+            border-bottom: 1px solid #f3f4f6; 
+            color: #374151; 
+            cursor: pointer; 
+            line-height: 1.1;
+        }
+        
+        tr.selected-row { background-color: #fef9c3 !important; }
+        tr:hover:not(.selected-row) { background-color: #f9fafb; }
+
+        .tool-btn-base {
+            width: 48px;
+            height: 48px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background-color: white;
+            border-radius: 0.75rem;
+            box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1);
+            border: 1px solid #1e1b4b;
+            color: #1e1b4b;
+            transition: transform 0.1s;
+        }
+
+        .tool-btn-base.active {
+            background-color: #4338ca !important;
+            border-color: #1e1b4b !important;
+            color: white !important;
+            transform: scale(1.05);
+        }
+        
+        #svgOverlay {
+            pointer-events: none;
+            position: absolute;
+            inset: 0;
+            z-index: 15;
+        }
+
+        .point-label {
+            font-family: 'Inter', sans-serif;
+            font-weight: 800;
+            font-size: 14px;
+            fill: #4338ca;
+            paint-order: stroke;
+            stroke: white;
+            stroke-width: 3px;
+        }
+
+        .ref1-label {
+            font-family: 'Inter', sans-serif;
+            font-weight: 800;
+            font-size: 14px;
+            fill: #059669;
+            paint-order: stroke;
+            stroke: white;
+            stroke-width: 3px;
+        }
+
+        .ref2-label {
+            font-family: 'Inter', sans-serif;
+            font-weight: 800;
+            font-size: 14px;
+            fill: #d97706;
+            paint-order: stroke;
+            stroke: white;
+            stroke-width: 3px;
+        }
+
+        .ref3-label {
+            font-family: 'Inter', sans-serif;
+            font-weight: 800;
+            font-size: 14px;
+            fill: #e11d48;
+            paint-order: stroke;
+            stroke: white;
+            stroke-width: 3px;
+        }
+
+        .measure-label {
+            font-family: 'Inter', sans-serif;
+            font-weight: 900;
+            font-size: 13px;
+            fill: #b45309;
+            paint-order: stroke;
+            stroke: white;
+            stroke-width: 4px;
+        }
+
+        .point-marker { pointer-events: all; cursor: pointer; }
+        .point-marker.selected { filter: drop-shadow(0 0 4px #fbbf24); stroke: #fbbf24; stroke-width: 2px; }
+
+        #placementCursor {
+            pointer-events: none;
+            position: absolute;
+            width: 40px;
+            height: 40px;
+            border: 2px solid #ef4444;
+            border-radius: 50%;
+            transform: translate(-50%, -50%);
+            z-index: 100;
+            display: none;
+        }
+
+        #placementCursor::after {
+            content: '';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 4px;
+            height: 4px;
+            background: #ef4444;
+            border-radius: 50%;
+            transform: translate(-50%, -50%);
+        }
+
+        #placementHint {
+            position: absolute;
+            pointer-events: none;
+            background: rgba(30, 27, 75, 0.95);
+            color: white;
+            padding: 8px 12px;
+            border-radius: 8px;
+            font-size: 11px;
+            font-weight: 600;
+            z-index: 200;
+            display: none;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.4);
+            white-space: nowrap;
+            transform: translate(24px, 24px);
+            border: 1px solid rgba(255,255,255,0.2);
+            line-height: 1.5;
+        }
+
+        #viewport { cursor: crosshair; }
+        #viewport.panning-cursor { cursor: grabbing !important; }
+        #viewport.placement-cursor { cursor: none !important; }
+        
+        #loader {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.5);
+            z-index: 1000;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            color: white;
+        }
+
+        .nudge-hint {
+            position: absolute;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: #fbbf24;
+            color: #1e1b4b;
+            padding: 8px 20px;
+            border-radius: 99px;
+            font-size: 11px;
+            font-weight: 900;
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.3s;
+            z-index: 150;
+        }
+        .nudge-hint.visible { opacity: 1; }
+        
+        #cropRect {
+            fill: rgba(79, 70, 229, 0.1);
+            stroke: #4f46e5;
+            stroke-width: 2;
+            stroke-dasharray: 4, 4;
+            display: none;
+        }
+
+        .tab-btn {
+            flex: 1;
+            padding: 0.75rem 0.25rem;
+            font-size: 10px;
+            font-weight: 800;
+            text-transform: uppercase;
+            letter-spacing: 0.025em;
+            border-bottom: 2px solid transparent;
+            color: #64748b;
+            transition: all 0.2s;
+            white-space: nowrap;
+        }
+        .tab-btn.active {
+            color: #4338ca;
+            border-bottom-color: #4338ca;
+            background-color: #f8fafc;
+        }
+
+        .tool-wrapper { position: relative; }
+    </style>
+</head>
+<body class="h-screen flex flex-col overflow-hidden">
+
+    <div id="loader">
+        <div class="animate-spin rounded-full h-16 w-16 border-t-4 border-white mb-4"></div>
+        <p class="font-bold" id="loaderText">Processing Image...</p>
+    </div>
+
+    <header class="bg-[#00274C] text-white p-3 shadow-md z-30 flex justify-between items-center shrink-0">
+        <div class="flex items-center gap-3">
+            <i class="fa-solid fa-microscope text-xl text-indigo-400"></i>
+            <div>
+                <h1 class="text-lg font-bold tracking-tight leading-none">UM Ring Applicator Film Analyzer</h1>
+                <p class="text-[13px] text-[#FFCB05] uppercase font-semibold mt-1">Michigan Medicine Radiation Oncology</p>
+            </div>
+        </div>
+        
+        <div class="flex items-center gap-4">
+            <div class="flex items-center gap-2 bg-indigo-900 px-3 py-1.5 rounded-lg border border-indigo-800">
+                <label class="text-[11px] font-bold text-indigo-200 uppercase">Rotation:</label>
+                <input type="number" id="rotationInput" value="0.00" step="0.05" class="w-16 px-1.5 py-0.5 bg-white text-indigo-950 rounded text-xs font-black outline-none">
+            </div>
+            <div class="flex items-center gap-2 bg-indigo-900 px-3 py-1.5 rounded-lg border border-indigo-800">
+                <label class="text-[11px] font-bold text-indigo-200 uppercase">Circle Ø <span class="normal-case">(mm)</span>:</label>
+                <input type="number" id="ringSizeInput" value="5.0" step="0.1" class="w-14 px-1.5 py-0.5 bg-white text-indigo-950 rounded text-xs font-black outline-none">
+            </div>
+            <div class="flex items-center gap-2 bg-indigo-900 px-3 py-1.5 rounded-lg border border-indigo-800">
+                <label class="text-[11px] font-bold text-indigo-200 uppercase">DPI:</label>
+                <input type="number" id="dpiInput" value="200" class="w-16 px-1.5 py-0.5 bg-white text-indigo-950 rounded text-xs font-black outline-none">
+            </div>
+        </div>
+    </header>
+
+    <main class="flex-1 flex overflow-hidden">
+        <section class="flex-1 relative bg-slate-300 overflow-hidden" id="viewport">
+            <div id="placementCursor"></div>
+            
+            <div id="placementHint">
+                <div id="hintPlacement" class="hidden flex flex-col gap-1">
+                    <span class="flex items-center gap-2 text-white"><i class="fa-solid fa-mouse-pointer text-indigo-300 w-4 text-center"></i> <span>Left: Add Point</span></span>
+                    <span class="flex items-center gap-2 text-white"><i class="fa-solid fa-mouse text-amber-400 w-4 text-center"></i> <span>Right: Finish</span></span>
+                    <span class="flex items-center gap-2 text-white"><i class="fa-solid fa-circle-notch text-emerald-400 w-4 text-center"></i> <span>Ctrl+Wheel: Size</span></span>
+                </div>
+                <div id="hintNudge" class="hidden flex flex-col gap-1">
+                    <span class="flex items-center gap-2 text-white"><i class="fa-solid fa-arrows-up-down-left-right text-amber-400 w-4 text-center"></i> <span>Arrows: Nudge</span></span>
+                    <span class="flex items-center gap-2 text-white"><i class="fa-solid fa-trash-can text-red-400 w-4 text-center"></i> <span>Del: Remove</span></span>
+                    <span class="flex items-center gap-2 text-white"><i class="fa-solid fa-mouse text-indigo-300 w-4 text-center"></i> <span>Right: Done</span></span>
+                </div>
+                <div id="hintMeasure" class="hidden flex flex-col gap-1">
+                    <span class="flex items-center gap-2 text-white"><i class="fa-solid fa-crosshairs text-indigo-300 w-4 text-center"></i> <span>Click: Pinpoint Point</span></span>
+                    <span class="flex items-center gap-2 text-white"><i class="fa-solid fa-mouse text-amber-400 w-4 text-center"></i> <span>Right: Exit</span></span>
+                </div>
+                <div id="hintSetCenter" class="hidden flex flex-col gap-1">
+                    <span class="flex items-center gap-2 text-white"><i class="fa-solid fa-location-crosshairs text-indigo-300 w-4 text-center"></i> <span>Left: Tentative Center</span></span>
+                    <span class="flex items-center gap-2 text-white"><i class="fa-solid fa-arrows-up-down-left-right text-amber-400 w-4 text-center"></i> <span>Arrows: Nudge</span></span>
+                    <span class="flex items-center gap-2 text-white"><i class="fa-solid fa-check-circle text-emerald-400 w-4 text-center"></i> <span>Right: Finalize Position</span></span>
+                </div>
+            </div>
+            
+            <div id="nudgeHint" class="nudge-hint">
+                <i class="fa-solid fa-arrows-up-down-left-right mr-2"></i>
+                ADJUSTING POINT: Use Arrow Keys to nudge. CTRL+Scroll to change circle size
+            </div>
+
+            <div class="absolute top-4 left-4 flex flex-col gap-3 z-[110]">
+                <div class="tool-wrapper" title="Import File">
+                    <label class="tool-btn-base cursor-pointer">
+                        <input type="file" id="fileInput" accept="image/*,.tif,.tiff" class="hidden"><i class="fa-solid fa-file-import text-lg"></i>
+                    </label>
+                </div>
+                <div class="tool-wrapper" title="Set Center Point">
+                    <button id="btnSetCenter" class="tool-btn-base"><i class="fa-solid fa-crosshairs text-lg"></i></button>
+                </div>
+                <div class="tool-wrapper" title="Crop Image">
+                    <button id="btnCropMode" class="tool-btn-base"><i class="fa-solid fa-crop-simple text-lg"></i></button>
+                </div>
+                <div class="tool-wrapper" title="Toggle Binary Mode">
+                    <button id="btnToggleBinary" class="tool-btn-base"><i class="fa-solid fa-circle-half-stroke text-lg"></i></button>
+                </div>
+                <div class="tool-wrapper" title="Smart Advanced De-noise">
+                    <button id="btnToggleDenoise" class="tool-btn-base"><i class="fa-solid fa-spray-can-sparkles text-lg"></i></button>
+                </div>
+                <div class="tool-wrapper" title="Auto Detect Points">
+                    <button id="btnAutoDetect" class="tool-btn-base"><i class="fa-solid fa-wand-magic-sparkles text-lg"></i></button>
+                </div>
+                <div class="tool-wrapper" title="Place Dwell Points">
+                    <button id="btnPointMode" class="tool-btn-base"><i class="fa-solid fa-location-dot text-lg"></i></button>
+                </div>
+                <div class="tool-wrapper" title="Measurement Tool">
+                    <button id="btnToggleMeasure" class="tool-btn-base"><i class="fa-solid fa-ruler-combined text-lg"></i></button>
+                </div>
+                <div class="tool-wrapper" title="Fit to Screen">
+                    <button id="btnFit" class="tool-btn-base"><i class="fa-solid fa-maximize text-lg"></i></button>
+                </div>
+                <div class="tool-wrapper" title="Reset Image Modifications">
+                    <button id="btnResetImage" class="tool-btn-base text-red-600"><i class="fa-solid fa-arrow-rotate-left text-lg"></i></button>
+                </div>
+            </div>
+
+            <div id="canvasWrapper" class="absolute left-1/2 top-1/2 pointer-events-none">
+                <canvas id="mainCanvas"></canvas>
+            </div>
+
+            <svg id="svgOverlay" width="100%" height="100%">
+                <!-- Primary Center Lines -->
+                <line id="ch-v" x1="0" y1="0" x2="0" y2="100%" stroke="#ef4444" stroke-width="1" stroke-dasharray="4,2" />
+                <line id="ch-h" x1="0" y1="0" x2="100%" y2="0" stroke="#ef4444" stroke-width="1" stroke-dasharray="4,2" />
+                <circle id="ch-center" r="5" fill="none" stroke="#ef4444" stroke-width="2" />
+                
+                <!-- Tentative Center Lines (Yellow) -->
+                <line id="tent-v" x1="0" y1="0" x2="0" y2="100%" stroke="#FFCB05" stroke-width="1.5" stroke-dasharray="2,2" style="display:none" />
+                <line id="tent-h" x1="0" y1="0" x2="100%" y2="0" stroke="#FFCB05" stroke-width="1.5" stroke-dasharray="2,2" style="display:none" />
+                <circle id="tent-center" r="6" fill="none" stroke="#FFCB05" stroke-width="2.5" style="display:none" />
+
+                <rect id="cropRect" x="0" y="0" width="0" height="0" />
+                <g id="pointsLayer"></g>
+                <g id="ref1Layer"></g>
+                <g id="ref2Layer"></g>
+                <g id="ref3Layer"></g>
+                <g id="measureLayer"></g>
+            </svg>
+
+            <!-- Developer Information Footer -->
+            <div class="absolute bottom-2 left-1/2 -translate-x-1/2 text-[11px] text-indigo-900/40 font-semibold tracking-wide uppercase z-[120] pointer-events-none whitespace-nowrap">
+                Developed by Choonik Lee (choonik@med.umich.edu) using Google Gemini Canvas
+            </div>
+
+            <div id="emptyState" class="absolute inset-0 flex flex-col items-center justify-center bg-slate-200 z-50 pointer-events-none">
+                <div class="bg-white p-10 rounded-3xl shadow-2xl flex flex-col items-center border-2 border-dashed border-indigo-300">
+                    <i class="fa-solid fa-cloud-arrow-up text-6xl text-indigo-200 mb-6"></i>
+                    <h2 class="text-2xl font-black text-indigo-900">Analysis Pending</h2>
+                    <p class="text-indigo-400 font-medium">Drop image here or Click menu button</p>
+                </div>
+            </div>
+        </section>
+
+        <aside class="w-[450px] bg-white shadow-2xl z-30 flex flex-col border-l border-indigo-100">
+            <div class="p-4 border-b border-indigo-50 bg-indigo-50/20">
+                <div class="flex justify-between items-center mb-3">
+                    <h3 class="text-[14px] font-black text-indigo-900 uppercase ">Image Controls</h3>
+                    <button id="btnResetAdjust" class="text-[9px] font-bold text-indigo-600 hover:underline uppercase">RESET</button>
+                </div>
+                
+                <div class="flex flex-col gap-4">
+                    <div class="flex items-center gap-3">
+                        <div class="w-6 text-center"><i class="fa-solid fa-sun text-indigo-400 text-xs"></i></div>
+                        <input type="range" id="inputBrightness" min="0" max="200" value="100">
+                        <span id="valBrightness" class="text-[10px] font-mono font-bold text-indigo-900 w-8 text-right">100</span>
+                    </div>
+
+                    <div class="flex items-center gap-3">
+                        <div class="w-6 text-center"><i class="fa-solid fa-circle-half-stroke text-indigo-400 text-xs"></i></div>
+                        <input type="range" id="inputContrast" min="0" max="200" value="100">
+                        <span id="valContrast" class="text-[10px] font-mono font-bold text-indigo-900 w-8 text-right">100</span>
+                    </div>
+
+                    <div id="denoiseSliderGroup" class="flex items-center gap-3 opacity-30 transition-all">
+                        <div class="w-6 text-center"><i class="fa-solid fa-spray-can-sparkles text-indigo-600 text-xs"></i></div>
+                        <input type="range" id="inputDenoise" min="0" max="15" value="0">
+                        <span id="valDenoise" class="text-[10px] font-mono font-bold text-indigo-900 w-8 text-right">0</span>
+                    </div>
+
+                    <div id="thresholdSliderGroup" class="flex items-center gap-3 opacity-30 transition-all">
+                        <div class="w-6 text-center"><i class="fa-solid fa-barcode text-indigo-600 text-xs"></i></div>
+                        <input type="range" id="inputThreshold" min="25" max="60" value="30">
+                        <span id="valThreshold" class="text-[10px] font-mono font-bold text-indigo-900 w-8 text-right">30</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="flex border-b border-indigo-100 bg-slate-50">
+                <button id="tabMeasured" class="tab-btn active">Measured</button>
+                <button id="tabRef1" class="tab-btn">REF#1</button>
+                <button id="tabRef2" class="tab-btn">REF#2</button>
+                <button id="tabRef3" class="tab-btn">REF#3</button>
+            </div>
+
+            <!-- Measured Set Content -->
+            <div id="measuredContent" class="flex flex-col flex-1 overflow-hidden">
+                <div class="p-3 bg-white grid grid-cols-2 gap-2">
+                    <button id="btnExportExcel" class="flex-1 flex items-center justify-center gap-2 py-2 bg-emerald-600 hover:bg-emerald-700 rounded-lg text-[14px] font-bold text-white shadow-sm transition-colors duration-200"><i class="fa-solid fa-file-excel"></i> Copy for Excel</button>
+                    <button id="btnClearPoints" class="px-4 py-2 bg-red-50 hover:bg-red-100 rounded-lg text-[14px] font-bold text-red-600 border border-red-100"><i class="fa-solid fa-trash-can"></i> Clear</button>
+                    <button id="btnReorderPoints" class="col-span-2 py-2 bg-indigo-50 hover:bg-indigo-100 rounded-lg text-[14px] font-bold text-indigo-600 border border-indigo-100" title="Re-number points by angle"><i class="fa-solid fa-arrow-down-1-9"></i> Sort Points Counter-Clockwise</button>
+                </div>
+
+                <div class="px-4 py-2 border-y border-indigo-50 flex justify-between items-center bg-indigo-50/10">
+                    <div class="flex flex-col gap-1">
+                        <h3 class="text-[14px] font-black text-indigo-950 uppercase">Measured Coordinates</h3>
+                        <div class="flex items-center gap-3">
+                            <span class="text-[10px] font-black text-indigo-900 uppercase">Show:</span>
+                            <label class="flex items-center gap-1 cursor-pointer">
+                                <input type="checkbox" id="toggleShowMeasuredMarker" checked class="w-3.5 h-3.5 rounded text-indigo-600 focus:ring-indigo-500">
+                                <span class="text-[10px] font-bold text-slate-500 uppercase">Marker</span>
+                            </label>
+                            <label class="flex items-center gap-1 cursor-pointer">
+                                <input type="checkbox" id="toggleShowMeasuredNumber" checked class="w-3.5 h-3.5 rounded text-indigo-600 focus:ring-indigo-500">
+                                <span class="text-[10px] font-bold text-slate-500 uppercase">Number</span>
+                            </label>
+                        </div>
+                    </div>
+                    <span id="pointCount" class="bg-indigo-900 text-white text-[11px] px-2 rounded-full font-black">0</span>
+                </div>
+
+                <div class="data-table-container">
+                    <table id="dataTable">
+                        <thead>
+                            <tr>
+                                <th>POINT#</th>
+                                <th class="text-[13px] font-mono tabular-nums text-right">ΔX (mm)</th>
+                                <th class="text-[13px] font-mono tabular-nums text-right">ΔY (mm)</th>
+                                <th class="text-[13px] font-mono tabular-nums text-right">ANGLE(°)</th>
+                                <th class="text-[13px] font-mono tabular-nums text-right">RADIUS (mm)</th>
+                                <th class="text-[13px] font-mono text-center">DEL</th>
+                            </tr>
+                        </thead>
+                        <tbody id="tableBody"></tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Reference Set #1 (Emerald) -->
+            <div id="ref1Content" class="hidden flex flex-col flex-1 overflow-hidden">
+                <div class="p-3 bg-white flex flex-col gap-2">
+                    <textarea id="pasteRef1" rows="3" class="w-full p-2 border border-emerald-100 rounded-lg text-[12px] focus:ring-1 focus:ring-emerald-500 outline-none resize-none font-mono" placeholder="Paste Reference #1 Data (ID, dX, dY)..."></textarea>
+                    <button id="btnClearRef1" class="w-full py-2 bg-emerald-50 hover:bg-emerald-100 rounded-lg text-[13px] font-bold text-emerald-600 border border-emerald-100 transition-colors">
+                        <i class="fa-solid fa-trash-can"></i> Clear Reference #1
+                    </button>
+                </div>
+
+                <div class="px-4 py-2 border-y border-emerald-100 flex justify-between items-center bg-emerald-50/20">
+                    <div class="flex flex-col gap-1">
+                        <h3 class="text-[14px] font-black text-emerald-900 uppercase">Reference #1 Data</h3>
+                        <div class="flex items-center gap-3">
+                            <span class="text-[10px] font-black text-emerald-700 uppercase">Show:</span>
+                            <label class="flex items-center gap-1 cursor-pointer">
+                                <input type="checkbox" id="toggleShowRef1Marker" checked class="w-3.5 h-3.5 rounded text-emerald-600 focus:ring-emerald-500">
+                                <span class="text-[10px] font-bold text-slate-500 uppercase">Marker</span>
+                            </label>
+                            <label class="flex items-center gap-1 cursor-pointer">
+                                <input type="checkbox" id="toggleShowRef1Number" class="w-3.5 h-3.5 rounded text-emerald-600 focus:ring-emerald-500">
+                                <span class="text-[10px] font-bold text-slate-500 uppercase">Number</span>
+                            </label>
+                        </div>
+                    </div>
+                    <span id="ref1Count" class="bg-emerald-600 text-white text-[11px] px-2 rounded-full font-black">0</span>
+                </div>
+
+                <div class="data-table-container">
+                    <table id="ref1Table">
+                        <thead>
+                            <tr>
+                                <th class="bg-emerald-50/30">ID</th>
+                                <th class="text-[13px] font-mono tabular-nums text-right bg-emerald-50/30">ΔX (mm)</th>
+                                <th class="text-[13px] font-mono tabular-nums text-right bg-emerald-50/30">ΔY (mm)</th>
+                                <th class="text-[13px] font-mono tabular-nums text-right bg-emerald-50/30">ANGLE(°)</th>
+                                <th class="text-[13px] font-mono tabular-nums text-right bg-emerald-50/30">RADIUS (mm)</th>
+                                <th class="text-[13px] font-mono text-center bg-emerald-50/30">DEL</th>
+                            </tr>
+                        </thead>
+                        <tbody id="ref1TableBody"></tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Reference Set #2 (Amber) -->
+            <div id="ref2Content" class="hidden flex flex-col flex-1 overflow-hidden">
+                <div class="p-3 bg-white flex flex-col gap-2">
+                    <textarea id="pasteRef2" rows="3" class="w-full p-2 border border-amber-100 rounded-lg text-[12px] focus:ring-1 focus:ring-amber-500 outline-none resize-none font-mono" placeholder="Paste Reference #2 Data (ID, dX, dY)..."></textarea>
+                    <button id="btnClearRef2" class="w-full py-2 bg-amber-50 hover:bg-amber-100 rounded-lg text-[13px] font-bold text-amber-600 border border-amber-100 transition-colors">
+                        <i class="fa-solid fa-trash-can"></i> Clear Reference #2
+                    </button>
+                </div>
+
+                <div class="px-4 py-2 border-y border-amber-100 flex justify-between items-center bg-amber-50/20">
+                    <div class="flex flex-col gap-1">
+                        <h3 class="text-[14px] font-black text-amber-900 uppercase">Reference #2 Data</h3>
+                        <div class="flex items-center gap-3">
+                            <span class="text-[10px] font-black text-amber-700 uppercase">Show:</span>
+                            <label class="flex items-center gap-1 cursor-pointer">
+                                <input type="checkbox" id="toggleShowRef2Marker" checked class="w-3.5 h-3.5 rounded text-amber-600 focus:ring-amber-500">
+                                <span class="text-[10px] font-bold text-slate-500 uppercase">Marker</span>
+                            </label>
+                            <label class="flex items-center gap-1 cursor-pointer">
+                                <input type="checkbox" id="toggleShowRef2Number" class="w-3.5 h-3.5 rounded text-amber-600 focus:ring-amber-500">
+                                <span class="text-[10px] font-bold text-slate-500 uppercase">Number</span>
+                            </label>
+                        </div>
+                    </div>
+                    <span id="ref2Count" class="bg-amber-600 text-white text-[11px] px-2 rounded-full font-black">0</span>
+                </div>
+
+                <div class="data-table-container">
+                    <table id="ref2Table">
+                        <thead>
+                            <tr>
+                                <th class="bg-amber-50/30">ID</th>
+                                <th class="text-[13px] font-mono tabular-nums text-right bg-amber-50/30">ΔX (mm)</th>
+                                <th class="text-[13px] font-mono tabular-nums text-right bg-amber-50/30">ΔY (mm)</th>
+                                <th class="text-[13px] font-mono tabular-nums text-right bg-amber-50/30">ANGLE(°)</th>
+                                <th class="text-[13px] font-mono tabular-nums text-right bg-amber-50/30">RADIUS (mm)</th>
+                                <th class="text-[13px] font-mono text-center bg-amber-50/30">DEL</th>
+                            </tr>
+                        </thead>
+                        <tbody id="ref2TableBody"></tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Reference Set #3 (Rose) -->
+            <div id="ref3Content" class="hidden flex flex-col flex-1 overflow-hidden">
+                <div class="p-3 bg-white flex flex-col gap-2">
+                    <textarea id="pasteRef3" rows="3" class="w-full p-2 border border-rose-100 rounded-lg text-[12px] focus:ring-1 focus:ring-rose-500 outline-none resize-none font-mono" placeholder="Paste Reference #3 Data (ID, dX, dY)..."></textarea>
+                    <button id="btnClearRef3" class="w-full py-2 bg-rose-50 hover:bg-rose-100 rounded-lg text-[13px] font-bold text-rose-600 border border-rose-100 transition-colors">
+                        <i class="fa-solid fa-trash-can"></i> Clear Reference #3
+                    </button>
+                </div>
+
+                <div class="px-4 py-2 border-y border-rose-100 flex justify-between items-center bg-rose-50/20">
+                    <div class="flex flex-col gap-1">
+                        <h3 class="text-[14px] font-black text-rose-900 uppercase">Reference #3 Data</h3>
+                        <div class="flex items-center gap-3">
+                            <span class="text-[10px] font-black text-rose-700 uppercase">Show:</span>
+                            <label class="flex items-center gap-1 cursor-pointer">
+                                <input type="checkbox" id="toggleShowRef3Marker" checked class="w-3.5 h-3.5 rounded text-rose-600 focus:ring-rose-500">
+                                <span class="text-[10px] font-bold text-slate-500 uppercase">Marker</span>
+                            </label>
+                            <label class="flex items-center gap-1 cursor-pointer">
+                                <input type="checkbox" id="toggleShowRef3Number" class="w-3.5 h-3.5 rounded text-rose-600 focus:ring-rose-500">
+                                <span class="text-[10px] font-bold text-slate-500 uppercase">Number</span>
+                            </label>
+                        </div>
+                    </div>
+                    <span id="ref3Count" class="bg-rose-600 text-white text-[11px] px-2 rounded-full font-black">0</span>
+                </div>
+
+                <div class="data-table-container">
+                    <table id="ref3Table">
+                        <thead>
+                            <tr>
+                                <th class="bg-rose-50/30">ID</th>
+                                <th class="text-[13px] font-mono tabular-nums text-right bg-rose-50/30">ΔX (mm)</th>
+                                <th class="text-[13px] font-mono tabular-nums text-right bg-rose-50/30">ΔY (mm)</th>
+                                <th class="text-[13px] font-mono tabular-nums text-right bg-rose-50/30">ANGLE(°)</th>
+                                <th class="text-[13px] font-mono tabular-nums text-right bg-rose-50/30">RADIUS (mm)</th>
+                                <th class="text-[13px] font-mono text-center bg-rose-50/30">DEL</th>
+                            </tr>
+                        </thead>
+                        <tbody id="ref3TableBody"></tbody>
+                    </table>
+                </div>
+            </div>
+
+        </aside>
+    </main>
+
+    <script>
+        class HDRAnalyzer {
+            constructor() {
+                this.viewport = document.getElementById('viewport');
+                this.canvas = document.getElementById('mainCanvas');
+                this.ctx = this.canvas.getContext('2d');
+                this.pointsLayer = document.getElementById('pointsLayer');
+                this.ref1Layer = document.getElementById('ref1Layer');
+                this.ref2Layer = document.getElementById('ref2Layer');
+                this.ref3Layer = document.getElementById('ref3Layer');
+                this.measureLayer = document.getElementById('measureLayer');
+                this.customCursor = document.getElementById('placementCursor');
+                this.placementHint = document.getElementById('placementHint');
+                this.loader = document.getElementById('loader');
+                this.loaderText = document.getElementById('loaderText');
+                this.cropRect = document.getElementById('cropRect');
+                
+                this.image = null;
+                this.originalImage = null;
+                this.points = [];
+                this.ref1Points = []; 
+                this.ref2Points = [];
+                this.ref3Points = [];
+                this.center = { x: 0, y: 0 };
+                this.tentativeCenter = null; 
+                this.scale = 1;
+                this.pan = { x: 0, y: 0 }; 
+                this.rotation = 0; 
+                this.selectedIndex = -1;
+                this.isBinary = false;
+                this.isDenoise = false;
+                
+                this.brightness = 100;
+                this.contrast = 100;
+                this.threshold = 30;
+                this.denoise = 0;
+                
+                this.measurementPoints = [];
+
+                this.modes = { VIEW: 'view', CROP: 'crop', SET_CENTER: 'set_center', PLACE_POINT: 'place_point', MEASURE: 'measure' };
+                this.currentMode = this.modes.VIEW;
+                this.isDragging = false;
+                this.dragType = null;
+                this.mousePosViewport = { x: 0, y: 0 };
+                this.mousePosImg = { x: 0, y: 0 };
+
+                this.init();
+            }
+
+            init() {
+                this.viewport.addEventListener('dragover', (e) => e.preventDefault());
+                this.viewport.addEventListener('drop', (e) => {
+                    e.preventDefault();
+                    if (e.dataTransfer.files.length) this.processFiles(e.dataTransfer.files);
+                });
+
+                document.getElementById('fileInput').addEventListener('change', (e) => this.processFiles(e.target.files));
+                
+                this.viewport.addEventListener('mousedown', (e) => this.onMouseDown(e));
+                this.viewport.addEventListener('mousemove', (e) => this.onMouseMove(e));
+                window.addEventListener('mouseup', (e) => this.onMouseUp(e));
+                this.viewport.addEventListener('wheel', (e) => this.onWheel(e), { passive: false });
+                window.addEventListener('keydown', (e) => this.onKeyDown(e));
+
+                this.viewport.addEventListener('contextmenu', (e) => {
+                    e.preventDefault();
+                    if (this.currentMode !== this.modes.VIEW || this.selectedIndex !== -1) {
+                        if (this.selectedIndex !== -1) this.selectPoint(-1);
+                        else {
+                            if (this.currentMode === this.modes.SET_CENTER && this.tentativeCenter) {
+                                const oldC = { ...this.center };
+                                const newC = { ...this.tentativeCenter };
+                                const rad = this.rotation * Math.PI / 180;
+                                const dc = { x: newC.x - oldC.x, y: newC.y - oldC.y };
+                                const shiftX = (dc.x * Math.cos(rad) - dc.y * Math.sin(rad)) * this.scale;
+                                const shiftY = (dc.x * Math.sin(rad) + dc.y * Math.cos(rad)) * this.scale;
+                                this.center = newC;
+                                this.pan.x += shiftX;
+                                this.pan.y += shiftY;
+                                this.updateTable();
+                            }
+                            this.toggleInteractionMode(this.modes.VIEW);
+                        }
+                    }
+                });
+
+                document.getElementById('btnFit').addEventListener('click', () => this.fitToScreen());
+                document.getElementById('btnPointMode').addEventListener('click', () => this.toggleInteractionMode(this.modes.PLACE_POINT));
+                document.getElementById('btnCropMode').addEventListener('click', () => this.toggleInteractionMode(this.modes.CROP));
+                document.getElementById('btnSetCenter').addEventListener('click', () => this.toggleInteractionMode(this.modes.SET_CENTER));
+                document.getElementById('btnToggleMeasure').addEventListener('click', () => this.toggleInteractionMode(this.modes.MEASURE));
+                document.getElementById('btnAutoDetect').addEventListener('click', () => this.runSeamlessAutoDetection());
+                document.getElementById('btnResetImage').addEventListener('click', () => this.resetModifications());
+                
+                ['inputBrightness', 'inputContrast', 'inputThreshold', 'inputDenoise'].forEach(id => {
+                    document.getElementById(id).addEventListener('input', () => {
+                        this.brightness = parseInt(document.getElementById('inputBrightness').value);
+                        this.contrast = parseInt(document.getElementById('inputContrast').value);
+                        this.threshold = parseInt(document.getElementById('inputThreshold').value);
+                        this.denoise = parseInt(document.getElementById('inputDenoise').value);
+                        this.syncAdjustUI();
+                        this.draw();
+                    });
+                });
+
+                document.getElementById('btnToggleBinary').addEventListener('click', () => {
+                    this.isBinary = !this.isBinary;
+                    if (this.isBinary) {
+                        this.calculateGlobalOtsuThreshold();
+                    }
+                    this.updateUIState();
+                    this.draw();
+                });
+
+                document.getElementById('btnToggleDenoise').addEventListener('click', () => {
+                    this.isDenoise = !this.isDenoise;
+                    this.updateUIState();
+                    this.draw();
+                });
+
+                document.getElementById('btnClearPoints').addEventListener('click', () => { 
+                    this.points = []; this.measurementPoints = []; this.selectedIndex = -1; this.updateTable(); this.draw(); 
+                });
+                document.getElementById('btnExportExcel').addEventListener('click', () => this.copyTableToClipboard());
+                document.getElementById('btnReorderPoints').addEventListener('click', () => this.reorderPoints());
+                document.getElementById('btnResetAdjust').addEventListener('click', () => {
+                   this.brightness = 100; this.contrast = 100; this.threshold = 30; this.denoise = 0;
+                   this.isBinary = false;
+                   this.isDenoise = false;
+                   this.syncAdjustUI();
+                   this.draw();
+                });
+
+                document.getElementById('dpiInput').addEventListener('input', () => { this.updateTable(); this.updateCursorSize(); this.draw(); });
+                document.getElementById('ringSizeInput').addEventListener('input', () => { this.updateCursorSize(); });
+                
+                const rotInput = document.getElementById('rotationInput');
+                rotInput.addEventListener('input', (e) => { 
+                    this.rotation = parseFloat(e.target.value) || 0; 
+                    this.draw(); 
+                    this.updateTable(); 
+                });
+
+                rotInput.parentElement.addEventListener('wheel', (e) => {
+                    if (!this.image) return;
+                    e.preventDefault();
+                    const step = parseFloat(rotInput.step) || 0.05;
+                    this.rotation = parseFloat(rotInput.value) || 0;
+                    this.rotation += (e.deltaY < 0 ? step : -step);
+                    this.rotation = Math.round(this.rotation * 100) / 100;
+                    rotInput.value = this.rotation.toFixed(2);
+                    this.draw();
+                    this.updateTable();
+                }, { passive: false });
+
+                document.getElementById('tabMeasured').addEventListener('click', () => this.switchTab('measured'));
+                document.getElementById('tabRef1').addEventListener('click', () => this.switchTab('ref1'));
+                document.getElementById('tabRef2').addEventListener('click', () => this.switchTab('ref2'));
+                document.getElementById('tabRef3').addEventListener('click', () => this.switchTab('ref3'));
+
+                ['toggleShowMeasuredMarker', 'toggleShowMeasuredNumber', 'toggleShowRef1Marker', 'toggleShowRef1Number', 'toggleShowRef2Marker', 'toggleShowRef2Number', 'toggleShowRef3Marker', 'toggleShowRef3Number'].forEach(id => {
+                    document.getElementById(id).addEventListener('change', () => this.draw());
+                });
+
+                document.getElementById('pasteRef1').addEventListener('input', (e) => {
+                    this.ref1Points = this.processPastedData(e.target.value);
+                    e.target.value = '';
+                    this.updateTable();
+                    this.draw();
+                });
+                document.getElementById('pasteRef2').addEventListener('input', (e) => {
+                    this.ref2Points = this.processPastedData(e.target.value);
+                    e.target.value = '';
+                    this.updateTable();
+                    this.draw();
+                });
+                document.getElementById('pasteRef3').addEventListener('input', (e) => {
+                    this.ref3Points = this.processPastedData(e.target.value);
+                    e.target.value = '';
+                    this.updateTable();
+                    this.draw();
+                });
+
+                document.getElementById('btnClearRef1').addEventListener('click', () => { this.ref1Points = []; this.updateTable(); this.draw(); });
+                document.getElementById('btnClearRef2').addEventListener('click', () => { this.ref2Points = []; this.updateTable(); this.draw(); });
+                document.getElementById('btnClearRef3').addEventListener('click', () => { this.ref3Points = []; this.updateTable(); this.draw(); });
+
+                window.addEventListener('resize', () => this.draw());
+            }
+
+            switchTab(t) {
+                const tabs = {
+                    'measured': { btn: 'tabMeasured', content: 'measuredContent' },
+                    'ref1': { btn: 'tabRef1', content: 'ref1Content' },
+                    'ref2': { btn: 'tabRef2', content: 'ref2Content' },
+                    'ref3': { btn: 'tabRef3', content: 'ref3Content' }
+                };
+                Object.values(tabs).forEach(obj => {
+                    document.getElementById(obj.btn).classList.remove('active');
+                    document.getElementById(obj.content).classList.add('hidden');
+                });
+                document.getElementById(tabs[t].btn).classList.add('active');
+                document.getElementById(tabs[t].content).classList.remove('hidden');
+            }
+
+            processPastedData(text) {
+                if (!text) return [];
+                const rows = text.trim().split(/\r?\n/);
+                const points = [];
+                rows.forEach(row => {
+                    const cols = row.split(/\t/);
+                    if (cols.length >= 3) {
+                        const id = cols[0].trim();
+                        const dxStr = cols[1].replace(/[^\d.eE-]/g, '');
+                        const dyStr = cols[2].replace(/[^\d.eE-]/g, '');
+                        const dx = parseFloat(dxStr);
+                        const dy = parseFloat(dyStr);
+                        if (!isNaN(dx) && !isNaN(dy)) {
+                            points.push({ id, dx, dy });
+                        }
+                    }
+                });
+                return points;
+            }
+
+            resetModifications() {
+                if (!this.originalImage) return;
+                this.finalizeImageLoad(this.originalImage, false);
+                this.rotation = 0;
+                document.getElementById('rotationInput').value = "0.00";
+                this.brightness = 100;
+                this.contrast = 100;
+                this.threshold = 30;
+                this.denoise = 0;
+                this.isBinary = false;
+                this.isDenoise = false;
+                this.syncAdjustUI();
+                this.draw();
+            }
+
+            reorderPoints() {
+                if (this.points.length < 2) return;
+                this.points.sort((a, b) => {
+                    let angA = Math.atan2(-(a.y - this.center.y), a.x - this.center.x);
+                    let angB = Math.atan2(-(b.y - this.center.y), b.x - this.center.x);
+                    if (angA < 0) angA += 2 * Math.PI;
+                    if (angB < 0) angB += 2 * Math.PI;
+                    return angA - angB;
+                });
+                this.updateTable();
+                this.draw();
+            }
+
+            calculateGlobalOtsuThreshold() {
+                if (!this.image) { this.threshold = 30; return; }
+                const w = 256, h = 256;
+                const cvs = document.createElement('canvas'); cvs.width = w; cvs.height = h;
+                const ctx = cvs.getContext('2d');
+                ctx.filter = `brightness(${this.brightness}%) contrast(${this.contrast}%)`;
+                ctx.drawImage(this.image, 0, 0, w, h);
+                const data = ctx.getImageData(0, 0, w, h).data;
+                const histogram = new Int32Array(256).fill(0);
+                for (let i = 0; i < data.length; i += 4) {
+                    const val = Math.round(0.299 * data[i] + 0.587 * data[i+1] + 0.114 * data[i+2]);
+                    histogram[val]++;
+                }
+                let total = data.length/4, sum = 0; for (let t = 0; t < 256; t++) sum += t * histogram[t];
+                let sumB = 0, wB = 0, wF = 0, maxVar = 0, optimalThreshold = 128;
+                for (let t = 0; t < 256; t++) {
+                    wB += histogram[t]; if (wB === 0) continue; wF = total - wB; if (wF === 0) break;
+                    sumB += t * histogram[t]; const mB = sumB / wB; const mF = (sum - sumB) / wF;
+                    const varBetween = wB * wF * (mB - mF) * (mB - mF);
+                    if (varBetween > maxVar) { maxVar = varBetween; optimalThreshold = t; }
+                }
+                this.threshold = Math.max(25, Math.min(60, Math.floor(optimalThreshold * 0.6)));
+                this.syncAdjustUI();
+            }
+
+            runSeamlessAutoDetection() {
+                if (!this.image) return;
+                this.loaderText.innerText = "Analyzing Markers...";
+                this.loader.style.display = 'flex';
+                setTimeout(() => {
+                    const canvas = document.createElement('canvas');
+                    canvas.width = this.image.width; canvas.height = this.image.height;
+                    const ctx = canvas.getContext('2d');
+                    
+                    // Pre-process canvas to match visual settings
+                    ctx.filter = `brightness(${this.brightness}%) contrast(${this.contrast}%)`;
+                    ctx.drawImage(this.image, 0, 0);
+                    
+                    if (this.isDenoise) {
+                        this.applyDenoise(ctx, canvas.width, canvas.height);
+                    }
+
+                    const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+                    const data = imgData.data;
+                    const width = canvas.width, height = canvas.height;
+                    const dpi = parseFloat(document.getElementById('dpiInput').value) || 200;
+                    const mmPerPx = 25.4 / dpi;
+                    
+                    /**
+                     * DYNAMIC THRESHOLD CALCULATION
+                     * We transform the base threshold value using the same mathematical logic 
+                     * as the image filters to ensure detection sensitivity tracks the visual state.
+                     */
+                    let effectiveThreshold = this.threshold;
+                    
+                    // 1. Model Brightness Transformation
+                    effectiveThreshold = effectiveThreshold * (this.brightness / 100);
+                    
+                    // 2. Model Contrast Transformation (CSS contrast pivot is around 128)
+                    effectiveThreshold = 128 + (effectiveThreshold - 128) * (this.contrast / 100);
+                    
+                    // 3. Compensate for Denoising (smoothing lifts dark minima)
+                    if (this.isDenoise) {
+                        effectiveThreshold += (this.denoise * 1.5);
+                    }
+
+                    // Guard clamping
+                    effectiveThreshold = Math.max(5, Math.min(250, effectiveThreshold));
+
+                    const minDistPx = 5.0 / mmPerPx;
+                    const cx = this.center.x, cy = this.center.y;
+                    const rMin = 14.0 / mmPerPx;
+                    const rMax = 20.0 / mmPerPx;
+                    const angularSamples = 1440;
+                    const angularProfile = new Float32Array(angularSamples).fill(255);
+                    const radialProfile = new Float32Array(angularSamples).fill(0);
+                    for (let i = 0; i < angularSamples; i++) {
+                        const angle = (i / angularSamples) * 2 * Math.PI;
+                        const cosA = Math.cos(angle), sinA = Math.sin(angle);
+                        let darkestVal = 255, darkestR = 0;
+                        for (let r = rMin; r <= rMax; r += 0.5) {
+                            const x = Math.round(cx + r * cosA);
+                            const y = Math.round(cy + r * sinA);
+                            if (x >= 0 && x < width && y >= 0 && y < height) {
+                                const rx_r = (x - cx) * Math.cos(this.rotation * Math.PI/180) - (y - cy) * Math.sin(this.rotation * Math.PI/180);
+                                const ry_r = (x - cx) * Math.sin(this.rotation * Math.PI/180) + (y - cy) * Math.cos(this.rotation * Math.PI/180);
+                                if (Math.abs(rx_r) < 4 || Math.abs(ry_r) < 4) continue;
+                                const idx = (y * width + x) * 4;
+                                const val = (data[idx] + data[idx+1] + data[idx+2]) / 3;
+                                if (val < darkestVal) { darkestVal = val; darkestR = r; }
+                            }
+                        }
+                        angularProfile[i] = darkestVal;
+                        radialProfile[i] = darkestR;
+                    }
+                    const candidates = [];
+                    const windowSize = 30; 
+                    for (let i = 0; i < angularSamples; i++) {
+                        const val = angularProfile[i];
+                        if (val < effectiveThreshold) {
+                            let isMin = true;
+                            for (let w = -windowSize; w <= windowSize; w++) {
+                                if (angularProfile[(i + w + angularSamples) % angularSamples] < val) { isMin = false; break; }
+                            }
+                            if (isMin) {
+                                candidates.push({ 
+                                    x: cx + radialProfile[i] * Math.cos((i / angularSamples) * 2 * Math.PI),
+                                    y: cy + radialProfile[i] * Math.sin((i / angularSamples) * 2 * Math.PI)
+                                });
+                                i += windowSize;
+                            }
+                        }
+                    }
+                    const finalPoints = [];
+                    if (candidates.length > 0) {
+                        finalPoints.push(candidates[0]);
+                        for (let k = 1; k < candidates.length; k++) {
+                            const prev = finalPoints[finalPoints.length - 1];
+                            if (Math.hypot(candidates[k].x - prev.x, candidates[k].y - prev.y) >= minDistPx) finalPoints.push(candidates[k]);
+                        }
+                    }
+                    this.points = finalPoints;
+                    this.reorderPoints();
+                    this.loader.style.display = 'none';
+                    this.draw();
+                }, 100);
+            }
+
+            syncAdjustUI() {
+                document.getElementById('inputBrightness').value = this.brightness;
+                document.getElementById('inputContrast').value = this.contrast;
+                document.getElementById('inputThreshold').value = this.threshold;
+                document.getElementById('inputDenoise').value = this.denoise;
+                document.getElementById('valBrightness').innerText = this.brightness;
+                document.getElementById('valContrast').innerText = this.contrast;
+                document.getElementById('valThreshold').innerText = this.threshold;
+                document.getElementById('valDenoise').innerText = this.denoise;
+                
+                document.getElementById('btnToggleBinary').classList.toggle('active', this.isBinary);
+                document.getElementById('btnToggleDenoise').classList.toggle('active', this.isDenoise);
+                
+                document.getElementById('thresholdSliderGroup').classList.toggle('opacity-30', !this.isBinary);
+                document.getElementById('denoiseSliderGroup').classList.toggle('opacity-30', !this.isDenoise);
+
+                const slidersToManage = ['inputBrightness', 'inputContrast'];
+                slidersToManage.forEach(id => {
+                    const el = document.getElementById(id);
+                    if (el) el.disabled = false; 
+                });
+                
+                document.getElementById('inputBrightness').parentElement.classList.remove('opacity-30');
+                document.getElementById('inputContrast').parentElement.classList.remove('opacity-30');
+            }
+
+            async processFiles(files) {
+                const file = files[0]; if (!file) return; this.loader.style.display = 'flex';
+                try {
+                    const arrayBuffer = await file.arrayBuffer();
+                    if (file.name.toLowerCase().match(/\.tiff?$/)) {
+                        const ifds = UTIF.decode(arrayBuffer); UTIF.decodeImage(arrayBuffer, ifds[0]);
+                        const rgba = UTIF.toRGBA8(ifds[0]);
+                        const getT = (ifd, id) => { let v = ifd[id] || ifd["t" + id]; return Array.isArray(v) ? (v.length >= 2 ? v[0] / v[1] : v[0]) : v; };
+                        const xR = getT(ifds[0], 282); const un = getT(ifds[0], 296) || 2;
+                        if (xR) document.getElementById('dpiInput').value = Math.round(un === 3 ? xR * 2.54 : xR);
+                        const off = document.createElement('canvas'); off.width = ifds[0].width; off.height = ifds[0].height;
+                        const oCtx = off.getContext('2d'); const imgD = oCtx.createImageData(off.width, off.height); imgD.data.set(rgba); oCtx.putImageData(imgD, 0, 0);
+                        const img = new Image(); img.onload = () => this.finalizeImageLoad(img); img.src = off.toDataURL();
+                    } else {
+                        const img = new Image(); img.onload = () => this.finalizeImageLoad(img); img.src = URL.createObjectURL(new Blob([arrayBuffer]));
+                    }
+                } catch (e) { this.loader.style.display = 'none'; }
+            }
+
+            finalizeImageLoad(img, isCrop = false, offset = {x:0, y:0}) {
+                if (!isCrop) this.originalImage = img;
+                this.image = img; this.canvas.width = img.width; this.canvas.height = img.height;
+                if (!isCrop) { 
+                    this.points = []; 
+                    this.center = {x: img.width/2, y: img.height/2}; 
+                    this.selectedIndex = -1; 
+                    this.toggleInteractionMode(this.modes.SET_CENTER); 
+                } else { 
+                    this.points = this.points.map(p => ({x: p.x - offset.x, y: p.y - offset.y})); 
+                    const margin = 10; 
+                    let nCx = this.center.x - offset.x, nCy = this.center.y - offset.y; 
+                    if (nCx < -margin || nCx > img.width + margin || nCy < -margin || nCy > img.height + margin) this.center = {x: img.width/2, y: img.height/2}; 
+                    else this.center = {x: nCx, y: nCy}; 
+                }
+                document.getElementById('emptyState').classList.add('hidden'); 
+                this.loader.style.display = 'none'; 
+                this.fitToScreen(); 
+                
+                // AUTO-CALIBRATE: Set threshold based on the new image/crop area immediately
+                this.calculateGlobalOtsuThreshold();
+                
+                this.updateTable();
+            }
+
+            applyDenoise(ctx, w, h) {
+                if (!this.isDenoise || this.denoise === 0) return;
+                const imgData = ctx.getImageData(0, 0, w, h);
+                const data = imgData.data;
+                const radius = Math.ceil(this.denoise / 4);
+                if (radius < 1) return;
+
+                const spatialSigma = this.denoise / 2;
+                const colorSigma = this.denoise * 2;
+                const copy = new Uint8ClampedArray(data);
+
+                for (let y = 0; y < h; y++) {
+                    for (let x = 0; x < w; x++) {
+                        const i = (y * w + x) * 4;
+                        let rSum = 0, gSum = 0, bSum = 0, wSum = 0;
+
+                        for (let dy = -radius; dy <= radius; dy++) {
+                            for (let dx = -radius; dx <= radius; dx++) {
+                                const nx = x + dx;
+                                const ny = y + dy;
+
+                                if (nx >= 0 && nx < w && ny >= 0 && ny < h) {
+                                    const ni = (ny * w + nx) * 4;
+                                    
+                                    const spatialDistSq = dx * dx + dy * dy;
+                                    const colorDistSq = Math.pow(copy[i] - copy[ni], 2) + Math.pow(copy[i+1] - copy[ni+1], 2) + Math.pow(copy[i+2] - copy[ni+2], 2);
+                                    
+                                    const weight = Math.exp(-spatialDistSq / (2 * spatialSigma * spatialSigma) - colorDistSq / (2 * colorSigma * colorSigma));
+                                    
+                                    rSum += copy[ni] * weight;
+                                    gSum += copy[ni+1] * weight;
+                                    bSum += copy[ni+2] * weight;
+                                    wSum += weight;
+                                }
+                            }
+                        }
+                        data[i] = rSum / wSum;
+                        data[i+1] = gSum / wSum;
+                        data[i+2] = bSum / wSum;
+                    }
+                }
+                ctx.putImageData(imgData, 0, 0);
+            }
+
+            applyBinary(ctx, w, h) {
+                if (!this.isBinary) return;
+                const imgData = ctx.getImageData(0, 0, w, h);
+                const data = imgData.data;
+                const threshold = this.threshold;
+                for (let i = 0; i < data.length; i += 4) {
+                    const avg = (data[i] + data[i+1] + data[i+2]) / 3;
+                    const val = avg >= threshold ? 255 : 0;
+                    data[i] = data[i+1] = data[i+2] = val;
+                }
+                ctx.putImageData(imgData, 0, 0);
+            }
+
+            performCrop() {
+                const sX = Math.min(this.dragStartImg.x, this.mousePosImg.x), sY = Math.min(this.dragStartImg.y, this.mousePosImg.y), w = Math.abs(this.mousePosImg.x - this.dragStartImg.x), h = Math.abs(this.mousePosImg.y - this.dragStartImg.y);
+                if (w < 10 || h < 10) return;
+                const temp = document.createElement('canvas'); temp.width = w; temp.height = h;
+                temp.getContext('2d').drawImage(this.image, sX, sY, w, h, 0, 0, w, h);
+                const img = new Image(); img.onload = () => this.finalizeImageLoad(img, true, {x: sX, y: sY}); img.src = temp.toDataURL();
+                this.toggleInteractionMode(this.modes.VIEW);
+            }
+
+            onMouseDown(e) {
+                if (!this.image) return;
+                const coords = this.getImgCoords(e), rect = this.viewport.getBoundingClientRect();
+                const vpX = e.clientX - rect.left, vpY = e.clientY - rect.top;
+                if (e.button === 1 || (e.button === 0 && e.shiftKey)) { this.isDragging = true; this.dragType = 'pan'; this.dragStartMouse = {x: e.clientX, y: e.clientY}; this.dragStartPan = {...this.pan}; this.viewport.classList.add('panning-cursor'); return; }
+                if (e.button === 0) {
+                    if (this.currentMode === this.modes.MEASURE) { if (this.measurementPoints.length >= 2) this.measurementPoints = [coords]; else this.measurementPoints.push(coords); }
+                    else if (this.currentMode === this.modes.SET_CENTER) { this.tentativeCenter = coords; }
+                    else if (this.selectedIndex !== -1) { this.points[this.selectedIndex] = coords; this.updateTable(); }
+                    else if (this.currentMode === this.modes.CROP) { this.isDragging = true; this.dragType = 'crop'; this.dragStartImg = coords; this.dragStartVP = { x: vpX, y: vpY }; this.cropRect.setAttribute('x', vpX); this.cropRect.setAttribute('y', vpY); this.cropRect.setAttribute('width', 0); this.cropRect.setAttribute('height', 0); this.cropRect.style.display = 'block'; }
+                    else if (this.currentMode === this.modes.PLACE_POINT) { this.points.push(coords); this.updateTable(); }
+                    else { const hitIndex = this.points.findIndex(p => { const vp = this.imgToViewport(p.x, p.y); return Math.hypot(vp.x - vpX, vp.y - vpY) < 15; }); if (hitIndex !== -1) this.selectPoint(hitIndex); else { this.isDragging = true; this.dragType = 'pan'; this.dragStartMouse = {x: e.clientX, y: e.clientY}; this.dragStartPan = {...this.pan}; } }
+                    this.draw();
+                }
+            }
+
+            onMouseMove(e) {
+                if (!this.image) return;
+                const rect = this.viewport.getBoundingClientRect();
+                const vpX = e.clientX - rect.left, vpY = e.clientY - rect.top;
+                this.mousePosViewport = { x: vpX, y: vpY };
+                this.mousePosImg = this.getImgCoords(e);
+                this.customCursor.style.left = vpX + 'px'; this.customCursor.style.top = vpY + 'px';
+                this.placementHint.style.left = vpX + 'px'; this.placementHint.style.top = vpY + 'px';
+                if (this.isDragging) {
+                    if (this.dragType === 'pan') { this.pan.x = this.dragStartPan.x + (e.clientX - this.dragStartMouse.x); this.pan.y = this.dragStartPan.y + (e.clientY - this.dragStartMouse.y); }
+                    else if (this.dragType === 'crop') { const x = Math.min(this.dragStartVP.x, vpX), y = Math.min(this.dragStartVP.y, vpY), w = Math.abs(vpX - this.dragStartVP.x), h = Math.abs(vpY - this.dragStartVP.y); this.cropRect.setAttribute('x', x); this.cropRect.setAttribute('y', y); this.cropRect.setAttribute('width', w); this.cropRect.setAttribute('height', h); }
+                }
+                this.draw();
+            }
+
+            onMouseUp(e) { if (this.isDragging && this.dragType === 'crop') { this.cropRect.style.display = 'none'; this.performCrop(); } this.isDragging = false; this.dragType = null; this.viewport.classList.remove('panning-cursor'); this.draw(); }
+
+            onWheel(e) {
+                if (!this.image) return; e.preventDefault();
+                if (e.ctrlKey && (this.currentMode === this.modes.PLACE_POINT || this.selectedIndex !== -1)) {
+                    const input = document.getElementById('ringSizeInput'); let currentVal = parseFloat(input.value); const delta = e.deltaY > 0 ? -0.1 : 0.1;
+                    input.value = Math.max(0.1, currentVal + delta).toFixed(1); this.updateCursorSize(); return;
+                }
+                const rect = this.viewport.getBoundingClientRect(); const mouseX = e.clientX - rect.left - rect.width / 2, mouseY = e.clientY - rect.top - rect.height / 2;
+                const delta = e.deltaY > 0 ? 0.9 : 1.1; this.pan.x = mouseX * (1 - delta) + this.pan.x * delta; this.pan.y = mouseY * (1 - delta) + this.pan.y * delta;
+                this.scale *= delta; this.draw(); this.updateCursorSize();
+            }
+
+            onKeyDown(e) {
+                const isSetCenter = this.currentMode === this.modes.SET_CENTER;
+                const isPointSelected = this.selectedIndex !== -1;
+                if (!isPointSelected && !isSetCenter) { if (e.key === 'Escape') this.toggleInteractionMode(this.modes.VIEW); return; }
+                const step = e.shiftKey ? 10 : 1; let target;
+                if (isSetCenter) { if (!this.tentativeCenter) this.tentativeCenter = { ...this.center }; target = this.tentativeCenter; } else target = this.points[this.selectedIndex];
+                if (e.key === 'ArrowUp') target.y -= step; else if (e.key === 'ArrowDown') target.y += step; else if (e.key === 'ArrowLeft') target.x -= step; else if (e.key === 'ArrowRight') target.x += step;
+                else if (e.key === 'Escape' || e.key === 'Enter') {
+                    if (isSetCenter) { const oldC = { ...this.center }; const nC = { ...this.tentativeCenter }; const rad = this.rotation * Math.PI / 180; const dc = { x: nC.x - oldC.x, y: nC.y - oldC.y }; this.center = nC; this.pan.x += (dc.x * Math.cos(rad) - dc.y * Math.sin(rad)) * this.scale; this.pan.y += (dc.x * Math.sin(rad) + dc.y * Math.cos(rad)) * this.scale; this.updateTable(); this.toggleInteractionMode(this.modes.VIEW); }
+                    else this.selectPoint(-1);
+                } else if (!isSetCenter && (e.key === 'Delete' || e.key === 'Backspace')) { this.points.splice(this.selectedIndex, 1); this.selectPoint(-1); } else return;
+                e.preventDefault(); this.updateTable(); this.draw();
+            }
+
+            selectPoint(idx) { if (this.selectedIndex === idx) this.selectedIndex = -1; else { this.selectedIndex = idx; this.currentMode = this.modes.VIEW; } document.getElementById('nudgeHint').classList.toggle('visible', this.selectedIndex !== -1); this.updateUIState(); this.updateTable(); this.draw(); }
+
+            toggleInteractionMode(m) { this.currentMode = this.currentMode === m ? this.modes.VIEW : m; if (this.currentMode !== this.modes.VIEW) this.selectedIndex = -1; else this.tentativeCenter = null; if (this.currentMode !== this.modes.MEASURE) this.measurementPoints = []; this.updateUIState(); this.draw(); }
+
+            updateUIState() {
+                ['btnPointMode','btnCropMode','btnSetCenter','btnToggleBinary','btnToggleMeasure', 'btnToggleDenoise'].forEach(id => { const el = document.getElementById(id); if(el) el.classList.toggle('active', (id === 'btnPointMode' && this.currentMode === this.modes.PLACE_POINT) || (id === 'btnCropMode' && this.currentMode === this.modes.CROP) || (id === 'btnSetCenter' && this.currentMode === this.modes.SET_CENTER) || (id === 'btnToggleMeasure' && this.currentMode === this.modes.MEASURE) || (id === 'btnToggleDenoise' && this.isDenoise) || (id === 'btnToggleBinary' && this.isBinary)); });
+                this.syncAdjustUI();
+                const isSpecial = this.currentMode === this.modes.PLACE_POINT || this.selectedIndex !== -1 || this.currentMode === this.modes.MEASURE || this.currentMode === this.modes.SET_CENTER;
+                this.viewport.classList.toggle('placement-cursor', isSpecial); this.customCursor.style.display = isSpecial ? 'block' : 'none';
+                ['hintPlacement', 'hintNudge', 'hintMeasure', 'hintSetCenter'].forEach(h => document.getElementById(h).classList.add('hidden'));
+                if (this.currentMode === this.modes.PLACE_POINT) { this.placementHint.style.display = 'block'; document.getElementById('hintPlacement').classList.remove('hidden'); }
+                else if (this.selectedIndex !== -1) { this.placementHint.style.display = 'block'; document.getElementById('hintNudge').classList.remove('hidden'); }
+                else if (this.currentMode === this.modes.MEASURE) { this.placementHint.style.display = 'block'; document.getElementById('hintMeasure').classList.remove('hidden'); }
+                else if (this.currentMode === this.modes.SET_CENTER) { this.placementHint.style.display = 'block'; document.getElementById('hintSetCenter').classList.remove('hidden'); }
+                else this.placementHint.style.display = 'none';
+            }
+
+            draw() {
+                if (!this.image) return;
+                this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+                const wrapper = document.getElementById('canvasWrapper');
+                wrapper.style.transformOrigin = `${this.center.x}px ${this.center.y}px`;
+                wrapper.style.transform = `translate(calc(-${this.center.x}px + ${this.pan.x}px), calc(-${this.center.y}px + ${this.pan.y}px)) scale(${this.scale}) rotate(${this.rotation}deg)`;
+                
+                this.ctx.save(); 
+                this.ctx.filter = `brightness(${this.brightness}%) contrast(${this.contrast}%)`; 
+                this.ctx.drawImage(this.image, 0, 0); 
+                this.ctx.restore();
+
+                if (this.isDenoise) {
+                    this.applyDenoise(this.ctx, this.canvas.width, this.canvas.height);
+                }
+                
+                if (this.isBinary) { 
+                    const imgD = this.ctx.getImageData(0,0,this.canvas.width,this.canvas.height); 
+                    const data = imgD.data; 
+                    for(let i=0; i<data.length; i+=4){ 
+                        const avg = (data[i]+data[i+1]+data[i+2])/3; 
+                        const v = avg >= this.threshold ? 255 : 0; 
+                        data[i]=data[i+1]=data[i+2]=v; 
+                    } 
+                    this.ctx.putImageData(imgD,0,0); 
+                }
+
+                const rCx = this.imgToViewport(this.center.x, this.center.y), mVp = this.mousePosViewport || rCx, tVp = (this.currentMode === this.modes.SET_CENTER) ? mVp : rCx;
+                document.getElementById('ch-v').setAttribute('x1', tVp.x); document.getElementById('ch-v').setAttribute('x2', tVp.x); document.getElementById('ch-h').setAttribute('y1', tVp.y); document.getElementById('ch-h').setAttribute('y2', tVp.y); document.getElementById('ch-center').setAttribute('cx', tVp.x); document.getElementById('ch-center').setAttribute('cy', tVp.y);
+                const tentEl = ['tent-v', 'tent-h', 'tent-center']; if (this.currentMode === this.modes.SET_CENTER && this.tentativeCenter) { const tVpP = this.imgToViewport(this.tentativeCenter.x, this.tentativeCenter.y); document.getElementById('tent-v').setAttribute('x1', tVpP.x); document.getElementById('tent-v').setAttribute('x2', tVpP.x); document.getElementById('tent-h').setAttribute('y1', tVpP.y); document.getElementById('tent-h').setAttribute('y2', tVpP.y); document.getElementById('tent-center').setAttribute('cx', tVpP.x); document.getElementById('tent-center').setAttribute('cy', tVpP.y); tentEl.forEach(id => document.getElementById(id).style.display = 'block'); } else tentEl.forEach(id => document.getElementById(id).style.display = 'none');
+                
+                // Draw Measured Points
+                this.pointsLayer.innerHTML = '';
+                const showMkr = document.getElementById('toggleShowMeasuredMarker').checked;
+                const showNum = document.getElementById('toggleShowMeasuredNumber').checked;
+                if (showMkr || showNum) {
+                    this.points.forEach((p, i) => { 
+                        const vp = this.imgToViewport(p.x, p.y); 
+                        if (showMkr) {
+                            const c = document.createElementNS("http://www.w3.org/2000/svg", "circle"); c.setAttribute('cx', vp.x); c.setAttribute('cy', vp.y); c.setAttribute('r', 6); c.setAttribute('fill', i === this.selectedIndex ? '#fbbf24' : '#4338ca'); c.setAttribute('class', 'point-marker' + (i === this.selectedIndex ? ' selected' : '')); c.onclick = (e) => { e.stopPropagation(); this.selectPoint(i); }; this.pointsLayer.appendChild(c); 
+                        }
+                        if (showNum) {
+                            const t = document.createElementNS("http://www.w3.org/2000/svg", "text"); t.setAttribute('x', vp.x + 10); t.setAttribute('y', vp.y - 10); t.setAttribute('class', 'point-label'); t.textContent = `#${i+1}`; this.pointsLayer.appendChild(t); 
+                        }
+                    });
+                }
+
+                this.renderExternalSet(this.ref1Layer, this.ref1Points, '#059669', 'ref1-label', 'toggleShowRef1Marker', 'toggleShowRef1Number');
+                this.renderExternalSet(this.ref2Layer, this.ref2Points, '#d97706', 'ref2-label', 'toggleShowRef2Marker', 'toggleShowRef2Number');
+                this.renderExternalSet(this.ref3Layer, this.ref3Points, '#e11d48', 'ref3-label', 'toggleShowRef3Marker', 'toggleShowRef3Number');
+
+                this.renderMeasure();
+            }
+
+            renderExternalSet(layer, points, color, labelClass, markerToggleId, numberToggleId) {
+                layer.innerHTML = '';
+                const showMkr = document.getElementById(markerToggleId).checked;
+                const showNum = document.getElementById(numberToggleId).checked;
+                if ((!showMkr && !showNum) || points.length === 0) return;
+                
+                const mmPerPx = 25.4 / (parseFloat(document.getElementById('dpiInput').value) || 200);
+                const rad = this.rotation * Math.PI / 180;
+                points.forEach(cp => {
+                    const rx = cp.dx / mmPerPx, ry = -cp.dy / mmPerPx;
+                    const ix = rx * Math.cos(rad) - ry * Math.sin(rad), iy = rx * Math.sin(rad) + ry * Math.cos(rad);
+                    const vp = this.imgToViewport(this.center.x + ix, this.center.y + iy);
+                    if (showMkr) {
+                        const c = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+                        c.setAttribute('cx', vp.x); c.setAttribute('cy', vp.y); c.setAttribute('r', 5);
+                        c.setAttribute('fill', color); c.setAttribute('fill-opacity', '0.75'); c.setAttribute('stroke', 'white'); c.setAttribute('stroke-width', '2'); layer.appendChild(c);
+                    }
+                    if (showNum) {
+                        const t = document.createElementNS("http://www.w3.org/2000/svg", "text"); t.setAttribute('x', vp.x + 8); t.setAttribute('y', vp.y + 14); t.setAttribute('class', labelClass); t.textContent = cp.id; layer.appendChild(t);
+                    }
+                });
+            }
+
+            renderMeasure() {
+                this.measureLayer.innerHTML = ''; if (this.measurementPoints.length === 0) return;
+                const mmPerPx = 25.4 / (parseFloat(document.getElementById('dpiInput').value) || 200);
+                const p1 = this.imgToViewport(this.measurementPoints[0].x, this.measurementPoints[0].y);
+                let p2 = (this.measurementPoints.length === 2) ? this.imgToViewport(this.measurementPoints[1].x, this.measurementPoints[1].y) : (this.mousePosViewport || p1);
+                const l = document.createElementNS("http://www.w3.org/2000/svg", "line"); l.setAttribute('x1', p1.x); l.setAttribute('y1', p1.y); l.setAttribute('x2', p2.x); l.setAttribute('y2', p2.y); l.setAttribute('stroke', '#b45309'); l.setAttribute('stroke-width', '2'); l.setAttribute('stroke-dasharray', '4,2'); this.measureLayer.appendChild(l);
+                [p1, p2].forEach(p => { const c = document.createElementNS("http://www.w3.org/2000/svg", "circle"); c.setAttribute('cx', p.x); c.setAttribute('cy', p.y); c.setAttribute('r', '4'); c.setAttribute('fill', '#b45309'); this.measureLayer.appendChild(c); });
+                const distMm = Math.hypot(this.measurementPoints[0].x - (this.measurementPoints[1]?.x || this.mousePosImg.x), this.measurementPoints[0].y - (this.measurementPoints[1]?.y || this.mousePosImg.y)) * mmPerPx;
+                const t = document.createElementNS("http://www.w3.org/2000/svg", "text"); t.setAttribute('x', (p1.x+p2.x)/2); t.setAttribute('y', (p1.y+p2.y)/2 - 10); t.setAttribute('text-anchor', 'middle'); t.setAttribute('class', 'measure-label'); t.textContent = `${distMm.toFixed(2)} mm`; this.measureLayer.appendChild(t);
+            }
+
+            updateTable() {
+                const mm = 25.4 / (parseFloat(document.getElementById('dpiInput').value)||200);
+                const rad = -this.rotation * Math.PI / 180;
+
+                const tbody = document.getElementById('tableBody'); tbody.innerHTML = '';
+                document.getElementById('pointCount').innerText = this.points.length;
+                this.points.forEach((p, i) => {
+                    const dx_r = p.x - this.center.x, dy_r = p.y - this.center.y;
+                    const rx = dx_r * Math.cos(rad) - dy_r * Math.sin(rad), ry = dx_r * Math.sin(rad) + dy_r * Math.cos(rad);
+                    const dx = rx * mm, dy = -ry * mm, rd = Math.hypot(dx, dy); let a = Math.atan2(-ry, rx) * 180 / Math.PI; if (a < 0) a += 360;
+                    
+                    const tr = document.createElement('tr');
+                    if (i === this.selectedIndex) tr.className = 'selected-row';
+                    tr.onclick = () => this.selectPoint(i);
+                    tr.innerHTML = `<td class="text-center font-black text-indigo-950">#${i+1}</td><td class="font-mono tabular-nums text-right">${dx.toFixed(3)}</td><td class="font-mono tabular-nums text-right">${dy.toFixed(3)}</td><td class="font-mono tabular-nums text-right">${a.toFixed(1)}°</td><td class="font-mono tabular-nums text-center">${rd.toFixed(3)}</td><td class="text-center"><button onclick="event.stopPropagation(); app.points.splice(${i},1); app.selectedIndex=-1; app.updateTable(); app.draw();" class="text-red-300 hover:text-red-500"><i class="fa-solid fa-trash"></i></button></td>`;
+                    tbody.appendChild(tr);
+                });
+
+                this.fillRefTable('ref1TableBody', 'ref1Count', this.ref1Points, '#059669');
+                this.fillRefTable('ref2TableBody', 'ref2Count', this.ref2Points, '#d97706');
+                this.fillRefTable('ref3TableBody', 'ref3Count', this.ref3Points, '#e11d48');
+            }
+
+            fillRefTable(tbodyId, countId, points, color) {
+                const tb = document.getElementById(tbodyId); tb.innerHTML = '';
+                document.getElementById(countId).innerText = points.length;
+                points.forEach((cp, i) => {
+                    const rd = Math.hypot(cp.dx, cp.dy);
+                    let a = Math.atan2(cp.dy, cp.dx) * 180 / Math.PI;
+                    if (a < 0) a += 360;
+
+                    const tr = document.createElement('tr');
+                    tr.innerHTML = `
+                        <td class="font-bold" style="color:${color}">${cp.id}</td>
+                        <td class="font-mono tabular-nums text-right">${cp.dx.toFixed(3)}</td>
+                        <td class="font-mono tabular-nums text-right">${cp.dy.toFixed(3)}</td>
+                        <td class="font-mono tabular-nums text-right">${a.toFixed(1)}°</td>
+                        <td class="font-mono tabular-nums text-right">${rd.toFixed(3)}</td>
+                        <td class="text-center">
+                            <button onclick="app.${tbodyId === 'ref1TableBody' ? 'ref1Points' : (tbodyId === 'ref2TableBody' ? 'ref2Points' : 'ref3Points')}.splice(${i},1); app.updateTable(); app.draw();" class="text-red-300 hover:text-red-500">
+                                <i class="fa-solid fa-trash"></i>
+                            </button>
+                        </td>`;
+                    tb.appendChild(tr);
+                });
+            }
+
+            copyTableToClipboard() {
+                const mm = 25.4 / (parseFloat(document.getElementById('dpiInput').value)||200);
+                const rad = -this.rotation * Math.PI / 180;
+                let t = "Point\tDelta X (mm)\tDelta Y (mm)\tAngle (°)\tRadius (mm)\n";
+                this.points.forEach((p, i) => {
+                    const rx = (p.x - this.center.x) * Math.cos(rad) - (p.y - this.center.y) * Math.sin(rad), ry = (p.x - this.center.x) * Math.sin(rad) + (p.y - this.center.y) * Math.cos(rad);
+                    const dx = rx * mm, dy = -ry * mm, rd = Math.hypot(dx, dy); let a = Math.atan2(-ry, rx) * 180 / Math.PI; if (a < 0) a += 360;
+                    t += `${i+1}\t${dx.toFixed(3)}\t${dy.toFixed(3)}\t${a.toFixed(2)}\t${rd.toFixed(3)}\n`;
+                });
+                const el = document.createElement("textarea"); el.value = t; document.body.appendChild(el); el.select(); document.execCommand('copy'); document.body.removeChild(el);
+                const btn = document.getElementById('btnExportExcel'); const oldHTML = btn.innerHTML; btn.innerHTML = '<i class="fa-solid fa-check"></i> Data Copied!'; btn.classList.replace('bg-emerald-600', 'bg-indigo-600'); setTimeout(() => { btn.innerHTML = oldHTML; btn.classList.replace('bg-indigo-600', 'bg-emerald-600'); }, 2000);
+            }
+
+            updateCursorSize() { 
+                if (!this.image) return; 
+                const diamPx = (parseFloat(document.getElementById('ringSizeInput').value)/25.4) * parseFloat(document.getElementById('dpiInput').value) * this.scale; 
+                this.customCursor.style.width = this.customCursor.style.height = `${diamPx}px`; 
+            }
+
+            fitToScreen() { 
+                if (!this.image) return; 
+                const rect = this.viewport.getBoundingClientRect(); 
+                this.scale = Math.min(rect.width/this.image.width, rect.height/this.image.height) * 0.9; 
+                this.pan.x = (this.center.x - this.image.width / 2) * this.scale; 
+                this.pan.y = (this.center.y - this.image.height / 2) * this.scale; 
+                this.draw(); 
+                this.updateCursorSize(); 
+            }
+
+            getImgCoords(e) {
+                const rect = this.viewport.getBoundingClientRect(); let mx = (e.clientX - rect.left) - (rect.width/2), my = (e.clientY - rect.top) - (rect.height/2);
+                const rad = -this.rotation * Math.PI / 180; const dx = (mx - this.pan.x) / this.scale, dy = (my - this.pan.y) / this.scale;
+                return { x: (dx * Math.cos(rad) - dy * Math.sin(rad)) + this.center.x, y: (dx * Math.sin(rad) + dy * Math.cos(rad)) + this.center.y };
+            }
+
+            imgToViewport(imgX, imgY) {
+                const rect = this.viewport.getBoundingClientRect(); let dx = (imgX - this.center.x), dy = (imgY - this.center.y);
+                const rad = this.rotation * Math.PI / 180; const rx = (dx * Math.cos(rad) - dy * Math.sin(rad)) * this.scale, ry = (dx * Math.sin(rad) + dy * Math.cos(rad)) * this.scale;
+                return { x: rx + this.pan.x + (rect.width / 2), y: ry + rect.height / 2 + this.pan.y };
+            }
+        }
+        const app = new HDRAnalyzer(); window.app = app;
+    </script>
+</body>
+</html>
