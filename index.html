@@ -318,7 +318,7 @@
                 ADJUSTING POINT: Use Arrow Keys to nudge. CTRL+Scroll to change circle size
             </div>
 
-            <div class="absolute top-4 left-4 flex flex-col gap-3 z-[110]">
+            <div class="absolute top-4 left-4 flex flex-col gap-3" style="z-index: 500;">
                 <div class="tool-wrapper" title="Import File">
                     <label class="tool-btn-base cursor-pointer">
                         <input type="file" id="fileInput" accept="image/*,.tif,.tiff" class="hidden"><i class="fa-solid fa-file-import text-lg"></i>
@@ -377,7 +377,7 @@
             </svg>
 
             <!-- Developer Information Footer -->
-            <div class="absolute bottom-2 left-1/2 -translate-x-1/2 text-[11px] text-indigo-900/40 font-semibold tracking-wide uppercase z-[120] pointer-events-none whitespace-nowrap">
+            <div class="absolute bottom-2 left-1/2 -translate-x-1/2 text-[11px] text-indigo-900/40 font-semibold tracking-wide uppercase z- pointer-events-none whitespace-nowrap">
                 Developed by Choonik Lee (choonik@med.umich.edu) using Google Gemini Canvas
             </div>
 
@@ -821,9 +821,10 @@
                 rows.forEach(row => {
                     const cols = row.split(/\t/);
                     if (cols.length >= 3) {
-                        const id = cols[0].trim();
-                        const dxStr = cols[1].replace(/[^\d.eE-]/g, '');
-                        const dyStr = cols[2].replace(/[^\d.eE-]/g, '');
+                        // Use .at() to strictly avoid markdown parser array bracket stripping
+                        const id = cols.at(0).trim();
+                        const dxStr = cols.at(1).replace(/[^\d.eE-]/g, '');
+                        const dyStr = cols.at(2).replace(/[^\d.eE-]/g, '');
                         const dx = parseFloat(dxStr);
                         const dy = parseFloat(dyStr);
                         if (!isNaN(dx) && !isNaN(dy)) {
@@ -977,9 +978,10 @@
                     }
                     const finalPoints = [];
                     if (candidates.length > 0) {
-                        finalPoints.push(candidates[0]);
+                        // Safely retrieve the first element using .at(0)
+                        finalPoints.push(candidates.at(0));
                         for (let k = 1; k < candidates.length; k++) {
-                            const prev = finalPoints[finalPoints.length - 1];
+                            const prev = finalPoints.at(-1); // Safely retrieve the last element
                             if (Math.hypot(candidates[k].x - prev.x, candidates[k].y - prev.y) >= minDistPx) finalPoints.push(candidates[k]);
                         }
                     }
@@ -1016,23 +1018,180 @@
                 document.getElementById('inputContrast').parentElement.classList.remove('opacity-30');
             }
 
+            /**
+             * Enhanced File Processing logic
+             * Supports TIFF DPI extraction and best-effort JPEG DPI parsing
+             */
             async processFiles(files) {
-                const file = files[0]; if (!file) return; this.loader.style.display = 'flex';
+                if (!files || files.length === 0) return;
+                // Using .item(0) is more stable for internal UI handling of FileList
+                const file = files.item(0);
+                this.loader.style.display = 'flex';
+                
+                const isJpeg = file.name.toLowerCase().match(/\.jpe?g$/);
+
                 try {
                     const arrayBuffer = await file.arrayBuffer();
-                    if (file.name.toLowerCase().match(/\.tiff?$/)) {
-                        const ifds = UTIF.decode(arrayBuffer); UTIF.decodeImage(arrayBuffer, ifds[0]);
-                        const rgba = UTIF.toRGBA8(ifds[0]);
-                        const getT = (ifd, id) => { let v = ifd[id] || ifd["t" + id]; return Array.isArray(v) ? (v.length >= 2 ? v[0] / v[1] : v[0]) : v; };
-                        const xR = getT(ifds[0], 282); const un = getT(ifds[0], 296) || 2;
-                        if (xR) document.getElementById('dpiInput').value = Math.round(un === 3 ? xR * 2.54 : xR);
-                        const off = document.createElement('canvas'); off.width = ifds[0].width; off.height = ifds[0].height;
-                        const oCtx = off.getContext('2d'); const imgD = oCtx.createImageData(off.width, off.height); imgD.data.set(rgba); oCtx.putImageData(imgD, 0, 0);
-                        const img = new Image(); img.onload = () => this.finalizeImageLoad(img); img.src = off.toDataURL();
-                    } else {
-                        const img = new Image(); img.onload = () => this.finalizeImageLoad(img); img.src = URL.createObjectURL(new Blob([arrayBuffer]));
+                    
+                    // Attempt best-effort DPI extraction for JPEGs
+                    if (isJpeg) {
+                        this.showAlert("Warning: DPI auto extraction is not reliable with JPEG/JPG images. Please manually verify.", 'warning', false);
+                        const dpi = this.extractJPEGDPI(arrayBuffer);
+                        if (dpi) {
+                            document.getElementById('dpiInput').value = Math.round(dpi);
+                            // Removed debug console.log for successful extraction
+                        } else {
+                            this.showAlert("DPI metadata not found in JPEG. Using default value (200).", 'warning', true);
+                            // Removed debug console.warn for failed extraction
+                        }
                     }
-                } catch (e) { this.loader.style.display = 'none'; }
+                    
+                    // TIFF specific handling using UTIF
+                    if (file.name.toLowerCase().match(/\.tiff?$/)) {
+                        const ifds = UTIF.decode(arrayBuffer); 
+                        // Fix: Assigning to a variable prevents markdown parsers from stripping the bracket index
+                        const firstIfd = ifds.at(0);
+                        UTIF.decodeImage(arrayBuffer, firstIfd); 
+                        const rgba = UTIF.toRGBA8(firstIfd);
+                        
+                        // Safely retrieve resolution tags with .at()
+                        const getT = (ifd, id) => { let v = ifd[id] || ifd["t" + id]; return Array.isArray(v) ? (v.length >= 2 ? v.at(0) / v.at(1) : v.at(0)) : v; };
+                        const xR = getT(firstIfd, 282); 
+                        const unit = getT(firstIfd, 296) || 2;
+                        if (xR) document.getElementById('dpiInput').value = Math.round(unit === 3 ? xR * 2.54 : xR);
+
+                        const off = document.createElement('canvas'); 
+                        off.width = firstIfd.width; 
+                        off.height = firstIfd.height;
+                        const oCtx = off.getContext('2d'); 
+                        const imgD = oCtx.createImageData(off.width, off.height); 
+                        imgD.data.set(rgba); 
+                        oCtx.putImageData(imgD, 0, 0);
+                        const img = new Image(); 
+                        img.onload = () => this.finalizeImageLoad(img); 
+                        img.src = off.toDataURL();
+                    } else {
+                        // Standard image loader for PNG/JPEG
+                        const img = new Image();
+                        img.onload = () => this.finalizeImageLoad(img);
+                        img.src = URL.createObjectURL(new Blob([arrayBuffer]));
+                    }
+                } catch (e) { 
+                    console.error("Critical Image Load Error:", e);
+                    this.loader.style.display = 'none'; 
+                }
+            }
+
+            /**
+             * Binary parser to extract DPI from JPEG segments
+             * Checks both JFIF (APP0) and EXIF (APP1) headers
+             */
+            extractJPEGDPI(arrayBuffer) {
+                const view = new DataView(arrayBuffer);
+                let offset = 2; // Skip SOI (0xFFD8)
+                
+                while (offset < view.byteLength) {
+                    // Marker sanity check
+                    if (view.getUint8(offset) !== 0xFF) break;
+                    
+                    const marker = view.getUint8(offset + 1);
+                    const length = view.getUint16(offset + 2, false);
+                    
+                    // APP0 Segment (JFIF)
+                    if (marker === 0xE0) {
+                        const id = String.fromCharCode(...new Uint8Array(arrayBuffer, offset + 4, 5));
+                        if (id === 'JFIF\0') {
+                            const units = view.getUint8(offset + 11);
+                            const xDens = view.getUint16(offset + 12, false);
+                            // units: 1 = dots per inch, 2 = dots per cm
+                            if (units === 1 && xDens > 0) return xDens;
+                            else if (units === 2 && xDens > 0) return Math.round(xDens * 2.54);
+                        }
+                    }
+                    
+                    // APP1 Segment (EXIF)
+                    if (marker === 0xE1) {
+                        const id = String.fromCharCode(...new Uint8Array(arrayBuffer, offset + 4, 4));
+                        if (id === 'Exif') {
+                            const exifStart = offset + 10;
+                            const exifEnd = offset + 4 + length;
+                            
+                            // Simple tag search for XResolution (0x011A)
+                            for (let i = exifStart; i < exifEnd - 12; i++) {
+                                const tag = view.getUint16(i, false);
+                                if (tag === 0x011A) {
+                                    try {
+                                        const valOffset = view.getUint32(i + 8, false);
+                                        const num = view.getUint32(exifStart + valOffset, false);
+                                        const den = view.getUint32(exifStart + valOffset + 4, false);
+                                        if (den > 0) {
+                                            let dpi = num / den;
+                                            // Check ResolutionUnit (0x0128)
+                                            for (let j = exifStart; j < exifEnd - 8; j++) {
+                                                if (view.getUint16(j, false) === 0x0128) {
+                                                    const unit = view.getUint16(j + 8, false);
+                                                    if (unit === 3) dpi *= 2.54; // Convert cm to inch
+                                                    break;
+                                                }
+                                            }
+                                            return Math.round(dpi);
+                                        }
+                                    } catch (err) { console.warn("EXIF parse error", err); }
+                                }
+                            }
+                        }
+                    }
+                    
+                    // Break if SOS (Start of Scan) is reached
+                    if (marker === 0xDA) break;
+                    offset += 2 + length;
+                }
+                return null;
+            }
+
+            /**
+             * Display non-blocking UI notifications
+             * Modified to enforce z- so it stays above aside panels, and support manual dismiss
+             */
+            showAlert(msg, type = 'info', autoDismiss = true) {
+                const alertDiv = document.createElement('div');
+                // Removed inline z- classes that were breaking and applied explicit inline styling
+                alertDiv.className = `fixed top-24 left-1/2 -translate-x-1/2 px-6 py-3 rounded-xl shadow-2xl font-bold text-sm transform transition-all duration-300 translate-y-[-20px] opacity-0 flex items-center gap-4 ${type === 'error' ? 'bg-red-600 text-white' : 'bg-amber-500 text-white'}`;
+                alertDiv.style.zIndex = '9999'; // Explicitly set maximum z-index
+                
+                const msgSpan = document.createElement('span');
+                msgSpan.innerText = msg;
+                alertDiv.appendChild(msgSpan);
+
+                // Add manual close button if autoDismiss is false
+                if (!autoDismiss) {
+                    const closeBtn = document.createElement('button');
+                    closeBtn.innerHTML = '<i class="fa-solid fa-xmark"></i>';
+                    closeBtn.className = 'w-6 h-6 bg-black/20 hover:bg-black/40 rounded-full flex items-center justify-center transition-colors shrink-0';
+                    closeBtn.onclick = () => {
+                        alertDiv.style.transform = 'translate(-50%, -20px)';
+                        alertDiv.style.opacity = '0';
+                        setTimeout(() => alertDiv.remove(), 300);
+                    };
+                    alertDiv.appendChild(closeBtn);
+                }
+
+                document.body.appendChild(alertDiv);
+                
+                requestAnimationFrame(() => {
+                    alertDiv.style.transform = 'translate(-50%, 0)';
+                    alertDiv.style.opacity = '1';
+                });
+
+                if (autoDismiss) {
+                    setTimeout(() => {
+                        if (alertDiv.parentElement) {
+                            alertDiv.style.transform = 'translate(-50%, -20px)';
+                            alertDiv.style.opacity = '0';
+                            setTimeout(() => alertDiv.remove(), 300);
+                        }
+                    }, 5000);
+                }
             }
 
             finalizeImageLoad(img, isCrop = false, offset = {x:0, y:0}) {
@@ -1054,9 +1213,8 @@
                 this.loader.style.display = 'none'; 
                 this.fitToScreen(); 
                 
-                // AUTO-CALIBRATE: Set threshold based on the new image/crop area immediately
+                // Auto-calibrate threshold for the new view
                 this.calculateGlobalOtsuThreshold();
-                
                 this.updateTable();
             }
 
@@ -1083,10 +1241,8 @@
 
                                 if (nx >= 0 && nx < w && ny >= 0 && ny < h) {
                                     const ni = (ny * w + nx) * 4;
-                                    
                                     const spatialDistSq = dx * dx + dy * dy;
                                     const colorDistSq = Math.pow(copy[i] - copy[ni], 2) + Math.pow(copy[i+1] - copy[ni+1], 2) + Math.pow(copy[i+2] - copy[ni+2], 2);
-                                    
                                     const weight = Math.exp(-spatialDistSq / (2 * spatialSigma * spatialSigma) - colorDistSq / (2 * colorSigma * colorSigma));
                                     
                                     rSum += copy[ni] * weight;
@@ -1232,7 +1388,6 @@
                 document.getElementById('ch-v').setAttribute('x1', tVp.x); document.getElementById('ch-v').setAttribute('x2', tVp.x); document.getElementById('ch-h').setAttribute('y1', tVp.y); document.getElementById('ch-h').setAttribute('y2', tVp.y); document.getElementById('ch-center').setAttribute('cx', tVp.x); document.getElementById('ch-center').setAttribute('cy', tVp.y);
                 const tentEl = ['tent-v', 'tent-h', 'tent-center']; if (this.currentMode === this.modes.SET_CENTER && this.tentativeCenter) { const tVpP = this.imgToViewport(this.tentativeCenter.x, this.tentativeCenter.y); document.getElementById('tent-v').setAttribute('x1', tVpP.x); document.getElementById('tent-v').setAttribute('x2', tVpP.x); document.getElementById('tent-h').setAttribute('y1', tVpP.y); document.getElementById('tent-h').setAttribute('y2', tVpP.y); document.getElementById('tent-center').setAttribute('cx', tVpP.x); document.getElementById('tent-center').setAttribute('cy', tVpP.y); tentEl.forEach(id => document.getElementById(id).style.display = 'block'); } else tentEl.forEach(id => document.getElementById(id).style.display = 'none');
                 
-                // Draw Measured Points
                 this.pointsLayer.innerHTML = '';
                 const showMkr = document.getElementById('toggleShowMeasuredMarker').checked;
                 const showNum = document.getElementById('toggleShowMeasuredNumber').checked;
@@ -1281,11 +1436,29 @@
             renderMeasure() {
                 this.measureLayer.innerHTML = ''; if (this.measurementPoints.length === 0) return;
                 const mmPerPx = 25.4 / (parseFloat(document.getElementById('dpiInput').value) || 200);
-                const p1 = this.imgToViewport(this.measurementPoints[0].x, this.measurementPoints[0].y);
-                let p2 = (this.measurementPoints.length === 2) ? this.imgToViewport(this.measurementPoints[1].x, this.measurementPoints[1].y) : (this.mousePosViewport || p1);
+                
+                // Safely extract points using .at() to prevent index stripping bugs
+                const pt1 = this.measurementPoints.at(0);
+                const p1 = this.imgToViewport(pt1.x, pt1.y);
+                
+                let p2;
+                let targetX, targetY;
+                
+                if (this.measurementPoints.length === 2) {
+                    const pt2 = this.measurementPoints.at(1);
+                    p2 = this.imgToViewport(pt2.x, pt2.y);
+                    targetX = pt2.x;
+                    targetY = pt2.y;
+                } else {
+                    p2 = this.mousePosViewport || p1;
+                    targetX = this.mousePosImg.x;
+                    targetY = this.mousePosImg.y;
+                }
+                
                 const l = document.createElementNS("http://www.w3.org/2000/svg", "line"); l.setAttribute('x1', p1.x); l.setAttribute('y1', p1.y); l.setAttribute('x2', p2.x); l.setAttribute('y2', p2.y); l.setAttribute('stroke', '#b45309'); l.setAttribute('stroke-width', '2'); l.setAttribute('stroke-dasharray', '4,2'); this.measureLayer.appendChild(l);
                 [p1, p2].forEach(p => { const c = document.createElementNS("http://www.w3.org/2000/svg", "circle"); c.setAttribute('cx', p.x); c.setAttribute('cy', p.y); c.setAttribute('r', '4'); c.setAttribute('fill', '#b45309'); this.measureLayer.appendChild(c); });
-                const distMm = Math.hypot(this.measurementPoints[0].x - (this.measurementPoints[1]?.x || this.mousePosImg.x), this.measurementPoints[0].y - (this.measurementPoints[1]?.y || this.mousePosImg.y)) * mmPerPx;
+                
+                const distMm = Math.hypot(pt1.x - targetX, pt1.y - targetY) * mmPerPx;
                 const t = document.createElementNS("http://www.w3.org/2000/svg", "text"); t.setAttribute('x', (p1.x+p2.x)/2); t.setAttribute('y', (p1.y+p2.y)/2 - 10); t.setAttribute('text-anchor', 'middle'); t.setAttribute('class', 'measure-label'); t.textContent = `${distMm.toFixed(2)} mm`; this.measureLayer.appendChild(t);
             }
 
