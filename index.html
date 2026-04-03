@@ -911,18 +911,8 @@
                     const dpi = parseFloat(document.getElementById('dpiInput').value) || 200;
                     const mmPerPx = 25.4 / dpi;
                     
-                    /**
-                     * DYNAMIC THRESHOLD CALCULATION
-                     * We transform the base threshold value using the same mathematical logic 
-                     * as the image filters to ensure detection sensitivity tracks the visual state.
-                     */
+
                     let effectiveThreshold = this.threshold;
-                    
-                    // 1. Model Brightness Transformation
-                    effectiveThreshold = effectiveThreshold * (this.brightness / 100);
-                    
-                    // 2. Model Contrast Transformation (CSS contrast pivot is around 128)
-                    effectiveThreshold = 128 + (effectiveThreshold - 128) * (this.contrast / 100);
                     
                     // 3. Compensate for Denoising (smoothing lifts dark minima)
                     if (this.isDenoise) {
