@@ -1204,27 +1204,30 @@
                     // High-quality TIFF protocol utilizing UTIF
                     if (file.name.toLowerCase().match(/\.tiff?$/)) {
                         const ifds = UTIF.decode(arrayBuffer); 
-                        // First page layer IFD object target assignment
-                        UTIF.decodeImage(arrayBuffer, ifds); 
-                        const rgba = UTIF.toRGBA8(ifds);
+                        
+                        // SAFE ARRAY INDEXING: Using .at(0) to prevent markdown stripping bugs
+                        const firstIfd = ifds.at(0);
+                        UTIF.decodeImage(arrayBuffer, firstIfd); 
+                        const rgba = UTIF.toRGBA8(firstIfd);
                         
                         // TIFF Resolution parsing (Tag 282 represents XResolution)
                         const getT = (ifd, id) => { 
                             let v = ifd[id] || ifd["t" + id]; 
                             if (!v) return null;
-                            return Array.isArray(v) ? (v.length >= 2 ? v / v : v) : v; 
+                            // SAFE ARRAY INDEXING: Using .at(0) and .at(1) for rational division
+                            return Array.isArray(v) ? (v.length >= 2 ? v.at(0) / v.at(1) : v.at(0)) : v; 
                         };
                         
-                        const xR = getT(ifds, 282); 
+                        const xR = getT(firstIfd, 282); 
                         // Tag 296 represents ResolutionUnit (2 = Inches, 3 = Centimeters)
-                        const unit = getT(ifds, 296) || 2; 
+                        const unit = getT(firstIfd, 296) || 2; 
                         
                         if (xR && !isJpeg) document.getElementById('dpiInput').value = Math.round(unit === 3 ? xR * 2.54 : xR);
 
                         // Mount pixel stream back into DOM object representation
                         const off = document.createElement('canvas'); 
-                        off.width = ifds.width; 
-                        off.height = ifds.height;
+                        off.width = firstIfd.width; 
+                        off.height = firstIfd.height;
                         const oCtx = off.getContext('2d'); 
                         const imgD = oCtx.createImageData(off.width, off.height); 
                         imgD.data.set(rgba); 
