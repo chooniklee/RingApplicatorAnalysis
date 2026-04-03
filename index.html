@@ -1478,11 +1478,9 @@
                 // Unified Left click execution block (Removed the duplicate buggy block that skipped rendering)
                 if (e.button === 0) {
                     if (this.currentMode === this.modes.MEASURE) { 
-                        if (this.measurementPoints.length >= 2) {
-                            this.measurementPoints = [coords]; // Reset to start a new line
-                        } else {
-                            this.measurementPoints.push(coords); 
-                        }
+                        // Allow multiple simultaneous measurements by continuously pushing new coordinates
+                        // The renderMeasure function will pair them up sequentially
+                        this.measurementPoints.push(coords); 
                     }
                     else if (this.currentMode === this.modes.SET_CENTER) { 
                         this.tentativeCenter = coords; 
@@ -1823,6 +1821,7 @@
 
             /**
              * Drives dynamic line connections indicating current spatial gap computations
+             * Modified to support multiple persistent measurement lines drawn sequentially
              */
             renderMeasure() {
                 this.measureLayer.innerHTML = ''; 
@@ -1830,45 +1829,51 @@
                 
                 const mmPerPx = 25.4 / (parseFloat(document.getElementById('dpiInput').value) || 200);
                 
-                const pt1 = this.measurementPoints[0]; // Safely reference normal array index
-                const p1 = this.imgToViewport(pt1.x, pt1.y);
-                
-                let p2;
-                let targetX, targetY;
-                
-                if (this.measurementPoints.length === 2) {
-                    const pt2 = this.measurementPoints[1]; // Safely reference normal array index
-                    p2 = this.imgToViewport(pt2.x, pt2.y);
-                    targetX = pt2.x;
-                    targetY = pt2.y;
-                } else {
-                    // Strict null check to prevent lines snapping to (0,0) top-left before the mouse has moved
-                    if (!this.mousePosViewport || !this.mousePosImg) return; 
+                // Iterate through points in pairs to render multiple measurement lines on the canvas
+                for (let i = 0; i < this.measurementPoints.length; i += 2) {
+                    const pt1 = this.measurementPoints.at(i); // Using .at() to strictly avoid array bracket parsing bugs
+                    const p1 = this.imgToViewport(pt1.x, pt1.y);
                     
-                    p2 = this.mousePosViewport;
-                    targetX = this.mousePosImg.x;
-                    targetY = this.mousePosImg.y;
+                    let pt2, p2, targetX, targetY;
+                    
+                    // Check if we have a complete pair to draw a fixed measurement line
+                    if (i + 1 < this.measurementPoints.length) {
+                        pt2 = this.measurementPoints.at(i + 1); // Using .at() to strictly avoid array bracket parsing bugs
+                        p2 = this.imgToViewport(pt2.x, pt2.y);
+                        targetX = pt2.x;
+                        targetY = pt2.y;
+                    } else {
+                        // Odd point out: draw a dynamic temporary line stretching to the current mouse cursor
+                        // Strict null check to prevent lines snapping to origin before the mouse has moved
+                        if (!this.mousePosViewport || !this.mousePosImg) continue; 
+                        
+                        p2 = this.mousePosViewport;
+                        targetX = this.mousePosImg.x;
+                        targetY = this.mousePosImg.y;
+                    }
+                    
+                    // Construct and append the dashed measurement line
+                    const l = document.createElementNS("http://www.w3.org/2000/svg", "line"); 
+                    l.setAttribute('x1', p1.x); l.setAttribute('y1', p1.y); l.setAttribute('x2', p2.x); l.setAttribute('y2', p2.y); 
+                    l.setAttribute('stroke', '#b45309'); l.setAttribute('stroke-width', '2'); l.setAttribute('stroke-dasharray', '4,2'); 
+                    this.measureLayer.appendChild(l);
+                    
+                    // Construct and append the anchoring circular nodes at both ends
+                    [p1, p2].forEach(p => { 
+                        const c = document.createElementNS("http://www.w3.org/2000/svg", "circle"); 
+                        c.setAttribute('cx', p.x); c.setAttribute('cy', p.y); c.setAttribute('r', '4'); 
+                        c.setAttribute('fill', '#b45309'); 
+                        this.measureLayer.appendChild(c); 
+                    });
+                    
+                    // Calculate the physical distance and append the text label exactly at the midpoint
+                    const distMm = Math.hypot(pt1.x - targetX, pt1.y - targetY) * mmPerPx;
+                    const t = document.createElementNS("http://www.w3.org/2000/svg", "text"); 
+                    t.setAttribute('x', (p1.x+p2.x)/2); t.setAttribute('y', (p1.y+p2.y)/2 - 10); 
+                    t.setAttribute('text-anchor', 'middle'); t.setAttribute('class', 'measure-label'); 
+                    t.textContent = `${distMm.toFixed(2)} mm`; 
+                    this.measureLayer.appendChild(t);
                 }
-                
-                const l = document.createElementNS("http://www.w3.org/2000/svg", "line"); 
-                l.setAttribute('x1', p1.x); l.setAttribute('y1', p1.y); l.setAttribute('x2', p2.x); l.setAttribute('y2', p2.y); 
-                l.setAttribute('stroke', '#b45309'); l.setAttribute('stroke-width', '2'); l.setAttribute('stroke-dasharray', '4,2'); 
-                this.measureLayer.appendChild(l);
-                
-                [p1, p2].forEach(p => { 
-                    const c = document.createElementNS("http://www.w3.org/2000/svg", "circle"); 
-                    c.setAttribute('cx', p.x); c.setAttribute('cy', p.y); c.setAttribute('r', '4'); 
-                    c.setAttribute('fill', '#b45309'); 
-                    this.measureLayer.appendChild(c); 
-                });
-                
-                const distMm = Math.hypot(pt1.x - targetX, pt1.y - targetY) * mmPerPx;
-                
-                const t = document.createElementNS("http://www.w3.org/2000/svg", "text"); 
-                t.setAttribute('x', (p1.x+p2.x)/2); t.setAttribute('y', (p1.y+p2.y)/2 - 10); 
-                t.setAttribute('text-anchor', 'middle'); t.setAttribute('class', 'measure-label'); 
-                t.textContent = `${distMm.toFixed(2)} mm`; 
-                this.measureLayer.appendChild(t);
             }
 
             /**
